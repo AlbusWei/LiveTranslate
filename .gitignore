@@ -1,0 +1,10 @@
+node_modules/
+dist/
+out/
+.superpowers/
+scratch/
+*.log
+.env
+.env.local
+.DS_Store
+Thumbs.db
