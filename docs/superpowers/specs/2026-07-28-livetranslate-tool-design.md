@@ -98,7 +98,7 @@
 ### 3.1 关键决策与理由
 | 决策 | 内容 | 理由 |
 |---|---|---|
-| D1 | 协议双轨：WS 保底一切场景；WebRTC 用于麦克风模式（可用时） | AOQ 不支持桌面/浏览器；WebRTC 提供传输层 AEC/抗弱网；WS 实测全功能可用且文件推流必须用 WS |
+| D1 | 协议双轨：WS 保底一切场景；WebRTC 用于双工麦克风模式（单人测试、实时翻译机，可用时）；文件配音与会议模式固定 WS | AOQ 不支持桌面/浏览器；WebRTC 提供传输层 AEC/抗弱网，仅在双工回声场景有增益；WS 实测全功能可用且文件推流/精确音频分段必须用 WS |
 | D2 | `ITranslateTransport` 抽象接口 | 两协议承载同一套 JSON 事件，业务层零感知切换；WebRTC 白名单未开通时自动降级 WS |
 | D3 | 本地优先 | 体验工具无账号/云同步需求；SQLite + 本地文件 |
 | D4 | Key 用户自填，桌面 `safeStorage` 加密存储；网页端 Key 存于本地网关进程（.env.local），不进浏览器 | 安全 + 分发合规 |
@@ -126,6 +126,11 @@ interface ITranslateTransport {
   abort(): void;                                 // 立即断开（重置用）
   on(event: ServerEventType, cb): void;          // 统一服务端事件总线
   readonly kind: 'ws' | 'webrtc';
+  // 译文音频输出路径因协议而异：
+  //   ws     → response.audio.delta 事件（可精确按 response 分段拼 blob）
+  //   webrtc → RTP 远端音频轨（流式播放；需分段留档时用 MediaRecorder
+  //            按 response.created/done 窗口录制远端轨，精度略低）
+  getRemoteAudio(): MediaStream | null;          // webrtc 专用，ws 返回 null
 }
 ```
 
@@ -198,6 +203,7 @@ interface ITranslateTransport {
   - 打断保护：playing 中"按下发言"无效，但提供"跳过播放"按钮（主持人用）。
 - 时间线：每次发言生成一张卡片（发言人头像/名字、原文、译文、▶ 重播、usage）；会议结束导出全程双语记录（Markdown/TXT，含时间戳与发言人）。
 - 设备：单机模式，共用一只麦克风 + 扬声器外放（圆桌物理模型）；设备选择复用 §5.3 组件（不强制耳机，因串行模式播放时无人说话，回声风险低；仍开 AEC）。
+- **传输通道：会议模式默认走 WS**（理由：卡片重播需要按 response 精确分段的音频 blob，WS 的 `audio.delta` 天然支持；串行热座场景无双工回声压力，WebRTC 的 AEC 增益有限）。WebRTC 在本模式仅作实验性开关。
 
 ---
 
@@ -205,7 +211,7 @@ interface ITranslateTransport {
 
 ### 6.1 音频管道
 - 采集：`getUserMedia`（AEC/NS/AGC 按模式配置）→ AudioWorklet 降采样 48k→16k PCM16 → 3200 字节/100ms 分块。
-- 播放：流式（实时翻译机/会议）用 Web Audio 播放队列（`AudioBufferSourceNode` 顺序调度，24k）；段落回放用 WAV blob + `<audio>`（支持 setSinkId）。
+- 播放：流式（实时翻译机/会议）——WS 通道用 Web Audio 播放队列（`AudioBufferSourceNode` 顺序调度，24k）；WebRTC 通道直接把远端轨绑到 `<audio>`（setSinkId 指定输出设备）。段落回放统一用 WAV blob + `<audio>`（支持 setSinkId）。
 
 ### 6.2 存储（本地）
 - SQLite（桌面 better-sqlite3 / 网页端经本地网关同库）：
