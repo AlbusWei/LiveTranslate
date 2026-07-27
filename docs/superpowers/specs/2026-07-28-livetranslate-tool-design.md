@@ -220,6 +220,7 @@ interface ITranslateTransport {
   - `meetings`(id, 名册 JSON, 目标语言) / `meeting_turns`(speaker, segment 引用)
   - `media_jobs`(文件模式：源文件路径、抽帧配置、产物路径)
 - 音频段落文件：`{userData}/audio/{sessionId}/{seq}.wav`。
+- 会话事件日志：`{userData}/logs/sessions/{sessionId}.jsonl`（见 §6.6）。
 - 历史页：按模式浏览/搜索/重播/导出/删除。
 
 ### 6.3 设置模块
@@ -238,6 +239,16 @@ interface ITranslateTransport {
 | 麦克风权限拒绝 | 各平台图文引导（macOS 系统偏好/Windows 隐私设置） |
 | ffmpeg 失败/不支持格式 | 明确报错文件格式与建议转换方式 |
 | 目标语言不支持音频 | 预先禁用音频开关（29/31 语种清单内置） |
+
+### 6.6 会话事件日志（开发调试基础设施，必做）
+**所有 session 全量留存原始事件日志，以 session id 为键**，用于开发调试与线下 debug：
+- 格式：每 session 一个 JSONL 文件 `{userData}/logs/sessions/{sessionId}.jsonl`，逐行记录：`{ts(毫秒时间戳), dir('c2s'|'s2c'), type, payload }`。
+- 覆盖范围：全部客户端事件与服务端事件（含 error、重连、降级、session 轮换等生命周期动作，以合成事件 `_lifecycle` 记录）；WebRTC 通道同样记录 data channel 事件与 SDP 交换摘要。
+- 体积控制：`input_audio_buffer.append`/`response.audio.delta` 的 base64 负载默认截断为长度+哈希（设置页可开启“完整音频负载”用于深度调试）；其余事件原文保留。
+- 索引：SQLite `session_logs`(session_id, file_path, mode, started_at, ended_at, event_count, error_count) 便于检索；日志文件本身不入库。
+- 入口：设置→“打开日志目录”；历史页每条会话附“查看事件日志”；支持导出单个 session 日志便于提交问题。
+- 保留策略：默认永久保留（本地磁盘，用户可手动清理）；日志写入用追加流，崩溃不丢已落盘部分。
+- 安全：日志中永不记录 API Key/Authorization header。
 
 ---
 
@@ -285,3 +296,4 @@ interface ITranslateTransport {
 7. 暂停=保 session 停推流可恢复；重置=清屏+重建 session。
 8. 文件模式：导入即预处理（A）；配音溢出顺延漂移（D）；视频抽帧视觉增强做成开关（方案二）。
 9. 会议模式：全场统一目标语言（A）；always 每句实时复刻；持久 session + 自动轮换；热座串行状态机。
+10. 所有 session 全量留存本地事件日志（以 session id 为键，JSONL，§6.6），作为开发调试基础设施。
