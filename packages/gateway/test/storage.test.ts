@@ -76,3 +76,30 @@ describe('Storage', () => {
     expect(storage.getMediaJob('nope')).toBeNull();
   });
 });
+
+describe('meeting storage (spec 6.2)', () => {
+  it('creates meetings and joins turns with segment texts', () => {
+    storage.createMeeting({ id: 'm1', rosterJson: JSON.stringify(['Alice', 'Bob']), targetLanguage: 'en', createdAt: 1753668000000 });
+    expect(storage.getMeeting('m1')?.target_language).toBe('en');
+    expect(storage.listMeetings().map((m) => m.id)).toEqual(['m1']);
+
+    storage.createSession({ id: 'sess_mt_1', mode: 'meeting', configJson: '{}', startedAt: 1753668000000 });
+    storage.insertSegment({
+      sessionId: 'sess_mt_1', seq: 1, vadStartMs: 0, vadEndMs: 4600,
+      sourceText: '今天天气很好，我们一起去公园散步。',
+      targetText: "The weather is very nice today, let's go for a walk in the park together.  ",
+      sourceLang: 'zh', emotion: 'neutral', audioPath: null, usageJson: null,
+    });
+    storage.addMeetingTurn({ meetingId: 'm1', speaker: 'Alice', sessionId: 'sess_mt_1', seq: 1 });
+
+    const turns = storage.listMeetingTurnTexts('m1');
+    expect(turns).toHaveLength(1);
+    expect(turns[0]!.speaker).toBe('Alice');
+    expect(turns[0]!.source_text).toBe('今天天气很好，我们一起去公园散步。');
+    expect(turns[0]!.source_lang).toBe('zh');
+  });
+
+  it('returns null for an unknown meeting', () => {
+    expect(storage.getMeeting('nope')).toBeNull();
+  });
+});

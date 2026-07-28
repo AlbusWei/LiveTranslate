@@ -30,6 +30,28 @@ export interface MediaJobRow {
   session_id: string | null; created_at: number;
 }
 
+export interface MeetingRow {
+  id: string;
+  roster_json: string;
+  target_language: string;
+  created_at: number;
+}
+
+export interface MeetingTurnRow {
+  id: number;
+  meeting_id: string;
+  speaker: string;
+  session_id: string;
+  seq: number;
+}
+
+export interface MeetingTurnText {
+  speaker: string;
+  source_text: string;
+  target_text: string;
+  source_lang: string | null;
+}
+
 export class Storage {
   constructor(private db: Db, private dataDir: string) {}
 
@@ -106,5 +128,34 @@ export class Storage {
 
   getMediaJob(id: string): MediaJobRow | null {
     return (this.db.prepare('SELECT * FROM media_jobs WHERE id = ?').get(id) as MediaJobRow | undefined) ?? null;
+  }
+
+  createMeeting(input: { id: string; rosterJson: string; targetLanguage: string; createdAt: number }): void {
+    this.db.prepare('INSERT INTO meetings (id, roster_json, target_language, created_at) VALUES (?, ?, ?, ?)')
+      .run(input.id, input.rosterJson, input.targetLanguage, input.createdAt);
+  }
+
+  getMeeting(id: string): MeetingRow | null {
+    return (this.db.prepare('SELECT * FROM meetings WHERE id = ?').get(id) as MeetingRow | undefined) ?? null;
+  }
+
+  listMeetings(): MeetingRow[] {
+    return this.db.prepare('SELECT * FROM meetings ORDER BY created_at DESC').all() as unknown as MeetingRow[];
+  }
+
+  addMeetingTurn(input: { meetingId: string; speaker: string; sessionId: string; seq: number }): void {
+    this.db.prepare('INSERT INTO meeting_turns (meeting_id, speaker, session_id, seq) VALUES (?, ?, ?, ?)')
+      .run(input.meetingId, input.speaker, input.sessionId, input.seq);
+  }
+
+  // 发言文本不重复存：JOIN segments 取双语内容（session 轮换后仍能跨 session 拼回全场记录）
+  listMeetingTurnTexts(meetingId: string): MeetingTurnText[] {
+    return this.db.prepare(`
+      SELECT mt.speaker, s.source_text, s.target_text, s.source_lang
+      FROM meeting_turns mt
+      JOIN segments s ON s.session_id = mt.session_id AND s.seq = mt.seq
+      WHERE mt.meeting_id = ?
+      ORDER BY mt.id
+    `).all(meetingId) as unknown as MeetingTurnText[];
   }
 }
