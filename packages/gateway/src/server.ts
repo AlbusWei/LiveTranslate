@@ -10,6 +10,7 @@ import { registerHistoryRoutes } from './historyRoutes';
 import { registerMediaRoutes } from './mediaJobs';
 import { registerExportRoutes } from './exportRoutes';
 import { registerMeetingRoutes } from './meetingRoutes';
+import { registerSdpProxy } from './sdpProxy';
 import type { SettingsStore } from './settings';
 
 export interface GatewayOptions {
@@ -55,6 +56,7 @@ export async function createGatewayServer(opts: GatewayOptions): Promise<Gateway
   registerMediaRoutes(routes, { storage, settings: opts.settings, dataDir: opts.dataDir, logFiles });
   registerExportRoutes(routes, { storage });
   registerMeetingRoutes(routes, { storage });
+  registerSdpProxy(routes, { settings: opts.settings });
   const server = createServer((req, res) => {
     const routeKey = `${req.method} ${(req.url ?? '').split('?')[0]}`;
     const bodyLimit = LARGE_BODY_LIMITS.get(routeKey) ?? MAX_BODY_BYTES;
