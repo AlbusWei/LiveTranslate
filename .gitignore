@@ -1,17 +1,36 @@
+# Dependencies
 node_modules/
+
+# Build output
 dist/
 out/
-.qoder/
-.superpowers/
-scratch/
-*.log
-.env
-.env.local
-.DS_Store
-Thumbs.db
 release/
 *.tsbuildinfo
 apps/desktop/release/
 apps/desktop/ui/
+
+# IDE / editor
+.qoder/
+.vscode/
+.idea/
+
+# Internal tooling
+.superpowers/
+scratch/
+
+# Environment & secrets
+.env
+.env.local
+*.local
+
+# Logs
+*.log
+
+# Test artifacts
 e2e/test-results/
 e2e/playwright-report/
+coverage/
+
+# OS files
+.DS_Store
+Thumbs.db
