@@ -1,0 +1,22 @@
+name: live-smoke
+on: workflow_dispatch # 仅手动触发：消耗真实 token，不进 push/定时
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - run: ffmpeg -y -f lavfi -i "sine=frequency=440:duration=2" -ar 16000 -ac 1 -sample_fmt s16 /tmp/smoke.wav
+      - run: node tools/live-smoke.mjs /tmp/smoke.wav
+        env:
+          DASHSCOPE_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}
+          LT_WORKSPACE_HOST: ${{ secrets.LT_WORKSPACE_HOST }}

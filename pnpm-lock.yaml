@@ -6,7 +6,11 @@ settings:
 
 importers:
 
-  .: {}
+  .:
+    devDependencies:
+      ws:
+        specifier: ^8.18.0
+        version: 8.21.1
 
   apps/desktop:
     dependencies:
