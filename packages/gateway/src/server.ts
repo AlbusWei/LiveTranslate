@@ -1,6 +1,7 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { WebSocketServer } from 'ws';
 import { attachRealtimeRelay } from './relay';
+import { runSelfCheck } from './selfCheck';
 import { SessionLogFiles } from './logFiles';
 import type { SettingsStore } from './settings';
 
@@ -39,6 +40,26 @@ export async function createGatewayServer(opts: GatewayOptions): Promise<Gateway
   });
   const wss = new WebSocketServer({ server, path: '/realtime' });
   attachRealtimeRelay(wss, { settings: opts.settings, logFiles, upstreamScheme: opts.upstreamScheme });
+  routes.set('GET /settings', (_req, res) => {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ settings: opts.settings.get(), maskedKey: opts.settings.getMaskedKey(), hasKey: opts.settings.hasApiKey() }));
+  });
+  routes.set('POST /settings', (_req, res, body) => {
+    const parsed = JSON.parse(body) as { patch?: Record<string, unknown>; apiKey?: string };
+    if (parsed.apiKey) opts.settings.setApiKey(parsed.apiKey);
+    const settings = parsed.patch ? opts.settings.update(parsed.patch) : opts.settings.get();
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ settings, maskedKey: opts.settings.getMaskedKey(), hasKey: opts.settings.hasApiKey() }));
+  });
+  routes.set('POST /self-check', async (_req, res) => {
+    const key = opts.settings.getApiKey();
+    const host = opts.settings.get().workspaceHost;
+    const result = key && host
+      ? await runSelfCheck({ host, apiKey: key })
+      : { ok: false as const, reason: 'API Key 或 Workspace Host 未配置' };
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(result));
+  });
   await new Promise<void>((r) => server.listen(opts.port, '127.0.0.1', r));
   const port = (server.address() as { port: number }).port;
   return {
