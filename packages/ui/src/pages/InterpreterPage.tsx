@@ -20,6 +20,7 @@ export function InterpreterPage(): JSX.Element {
   const [defaultVoice, setDefaultVoice] = useState('Tina');
   const [latencyMs, setLatencyMs] = useState<number | null>(null);
   const [segments, setSegments] = useState<readonly TranscriptSegment[]>([]);
+  const [startError, setStartError] = useState<string | null>(null);
 
   const orchRef = useRef<SessionOrchestrator | null>(null);
   const micRef = useRef<MicCaptureHandle | null>(null);
@@ -99,13 +100,27 @@ export function InterpreterPage(): JSX.Element {
     orchRef.current = orch;
     meterRef.current = new UsageMeter();
     setLatencyMs(null);
-    await orch.start();
-    // D6：M4 仅 WS 通道，浏览器侧 AEC/NS 兑底回声
-    micRef.current = await startMicCapture({
-      deviceId: choice.inputDeviceId,
-      echoCancellation: true,
-      onChunk: (b) => orch.pushAudio(b),
-    });
+    setStartError(null);
+    try {
+      await orch.start();
+      // D6：M4 仅 WS 通道，浏览器侧 AEC/NS 兑底回声
+      micRef.current = await startMicCapture({
+        deviceId: choice.inputDeviceId,
+        echoCancellation: true,
+        onChunk: (b) => orch.pushAudio(b),
+      });
+    } catch (err) {
+      // B10 自审 #2：对齐 SoloPage 防护，启动失败不留 unhandled rejection
+      micRef.current?.stop();
+      micRef.current = null;
+      orch.transport?.abort();
+      orchRef.current = null;
+      playerRef.current = null;
+      void ctx.close();
+      ctxRef.current = null;
+      setState('idle');
+      setStartError(err instanceof Error ? err.message : String(err));
+    }
   }
 
   function pause(): void {
@@ -163,6 +178,7 @@ export function InterpreterPage(): JSX.Element {
         </label>
         {!audioOk && <p className="error-text">该目标语言仅支持文本输出，无法启动实时翻译机，请改选支持语音的语言。</p>}
         {state === 'error' && <p className="error-text">重连失败，请检查网络后重新开始。</p>}
+        {startError && <p className="error-text">启动失败：{startError}</p>}
         <button disabled={!audioOk} onClick={() => void start()}>开始翻译</button>
       </div>
     );
