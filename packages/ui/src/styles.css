@@ -47,3 +47,5 @@ input, select, textarea { background: #262b3a; color: #e8eaf0; border: 1px solid
 .drift-chip.drifted { background: #b58900; }
 .drift-chip.active { outline: 2px solid #fff; }
 .segment-wave { display: block; margin: 4px 0; background: #14161c; border-radius: 4px; }
+.dub-exports { display: flex; gap: 16px; margin-bottom: 12px; }
+.dub-exports a { color: #4c9aff; }

@@ -4,7 +4,7 @@ import {
   type DubPlacement, type DubSegmentTiming,
 } from '@livetranslate/core';
 import {
-  createGatewayApi, createMediaJob, fetchMediaJob, fetchSegmentAudio, fetchSegments, mediaFileUrl,
+  createGatewayApi, createMediaJob, exportUrl, fetchMediaJob, fetchSegmentAudio, fetchSegments, mediaFileUrl,
   type MediaJobStatusDto, type SegmentDto,
 } from '../api';
 import { createPlayerSink } from '../audio/playerSink';
@@ -275,6 +275,13 @@ export function FileDubPage(): JSX.Element {
             <button onClick={() => { pauseDubPlayback(); controller.current?.seek(0); setCurrentSeq(null); }}>⏮ 回到开头</button>
             <DriftBar placements={placements} currentSeq={currentSeq} totalMs={progress?.totalMs ?? 0} />
           </div>
+          {status?.job.session_id && (
+            <div className="dub-exports">
+              <a href={exportUrl('srt', status.job.session_id)} download>导出 SRT</a>
+              <a href={exportUrl('txt', status.job.session_id)} download>导出双语 TXT</a>
+              <a href={exportUrl('dub-wav', status.job.session_id)} download>导出混音 WAV</a>
+            </div>
+          )}
           <div className="dub-columns">
             <div className="dub-col">
               <h3>原文</h3>

@@ -174,3 +174,7 @@ export async function fetchMediaJob(id: string): Promise<MediaJobStatusDto | nul
 
 export const mediaFileUrl = (id: string): string =>
   `${getPlatform().gatewayHttpBase()}/media-file?id=${encodeURIComponent(id)}`;
+
+// T25 导出：浏览器直接下载（Content-Disposition attachment）
+export const exportUrl = (kind: 'srt' | 'txt' | 'dub-wav', sessionId: string): string =>
+  `${getPlatform().gatewayHttpBase()}/export/${kind}?sessionId=${encodeURIComponent(sessionId)}`;
