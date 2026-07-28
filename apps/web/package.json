@@ -3,9 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "concurrently -n gateway,ui \"pnpm --filter @livetranslate/gateway dev\" \"pnpm --filter @livetranslate/ui dev\""
+    "dev": "concurrently -n gateway,ui \"cross-env LT_GATEWAY_STANDALONE=1 pnpm --filter @livetranslate/gateway dev\" \"pnpm --filter @livetranslate/ui dev\""
   },
   "devDependencies": {
-    "concurrently": "^9.0.0"
+    "concurrently": "^9.0.0",
+    "cross-env": "^7.0.3"
   }
 }
