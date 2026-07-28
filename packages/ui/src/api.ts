@@ -130,3 +130,47 @@ export async function fetchSessionLog(sessionId: string): Promise<string | null>
 }
 
 export const deleteSessionRecord = (id: string): Promise<void> => postJson('/sessions/delete', { id });
+
+// ---- 媒体预处理作业（T21 写入/查询侧，T23 工作台消费）：与网关 mediaJobs 路由一一对应 ----
+
+export interface MediaJobDto {
+  id: string;
+  source_path: string;
+  frame_config_json: string;
+  artifacts_json: string | null;
+  status: 'pending' | 'processing' | 'done' | 'failed';
+  session_id: string | null;
+  created_at: number;
+}
+
+export interface MediaJobStatusDto {
+  job: MediaJobDto;
+  progress: { doneMs: number; totalMs: number } | null;
+}
+
+export interface CreateMediaJobBody {
+  fileName: string;
+  dataBase64: string;
+  isVideo: boolean;
+  sourceLanguage?: string;
+  targetLanguage: string;
+  voiceClone: boolean;
+  voice: string;
+  framesEnabled: boolean;
+}
+
+export async function createMediaJob(b: CreateMediaJobBody): Promise<string> {
+  const res = await fetch(`${getPlatform().gatewayHttpBase()}/media-jobs`, { method: 'POST', body: JSON.stringify(b) });
+  if (!res.ok) throw new Error(`gateway /media-jobs -> HTTP ${res.status}`);
+  return ((await res.json()) as { jobId: string }).jobId;
+}
+
+export async function fetchMediaJob(id: string): Promise<MediaJobStatusDto | null> {
+  const res = await fetch(`${getPlatform().gatewayHttpBase()}/media-job?id=${encodeURIComponent(id)}`);
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`gateway /media-job -> HTTP ${res.status}`);
+  return (await res.json()) as MediaJobStatusDto;
+}
+
+export const mediaFileUrl = (id: string): string =>
+  `${getPlatform().gatewayHttpBase()}/media-file?id=${encodeURIComponent(id)}`;

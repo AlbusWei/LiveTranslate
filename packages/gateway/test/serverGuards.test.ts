@@ -176,4 +176,24 @@ describe('HTTP body size limit', () => {
     expect(settings.targetLanguage).toBe('en');
     await rig.close();
   });
+
+  it('allows >1MB uploads on POST /media-jobs (base64 media exceeds the default cap)', async () => {
+    const rig = await startRig(() => { /* 上游不参与 */ });
+    // ~1.6MB base64（对应 1.2MB 媒体）：真实 zh-long.wav 就超 1MB 默认限
+    const body = JSON.stringify({
+      fileName: 'big.wav', dataBase64: 'A'.repeat(1_600_000),
+      isVideo: false, targetLanguage: 'en', voiceClone: false, voice: 'Tina', framesEnabled: false,
+    });
+    const res = await fetch(`http://127.0.0.1:${rig.gateway.port}/media-jobs`, { method: 'POST', body });
+    expect(res.status).toBe(200);
+    const jobId = ((await res.json()) as { jobId: string }).jobId;
+    expect(jobId).toBeTruthy();
+    // 等 fire-and-forget 作业收尾（假媒体 ffmpeg 必败）再关，避免 db 先关的竞态
+    for (let i = 0; i < 100; i++) {
+      const st = await (await fetch(`http://127.0.0.1:${rig.gateway.port}/media-job?id=${jobId}`)).json() as { job: { status: string } };
+      if (st.job.status === 'failed' || st.job.status === 'done') break;
+      await sleep(100);
+    }
+    await rig.close();
+  });
 });

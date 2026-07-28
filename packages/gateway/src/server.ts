@@ -29,6 +29,8 @@ export interface GatewayHandle {
 export type RouteHandler = (req: IncomingMessage, res: ServerResponse, body: string) => Promise<void> | void;
 
 const MAX_BODY_BYTES = 1_000_000; // 1MB：设置/术语表足够，防恶意大包体
+// 媒体上传（base64 JSON）远超 1MB：仅对白名单路由放宽（spec 5.2 文件配音）
+const LARGE_BODY_LIMITS = new Map<string, number>([['POST /media-jobs', 512_000_000]]);
 
 // 网页调试端（vite :5173）跨源访问本地网关：仅对本机开发 origin 放行
 function corsHeaders(req: IncomingMessage): Record<string, string> {
@@ -50,12 +52,14 @@ export async function createGatewayServer(opts: GatewayOptions): Promise<Gateway
   registerHistoryRoutes(routes, { storage, dataDir: opts.dataDir });
   registerMediaRoutes(routes, { storage, settings: opts.settings, dataDir: opts.dataDir, logFiles });
   const server = createServer((req, res) => {
+    const routeKey = `${req.method} ${(req.url ?? '').split('?')[0]}`;
+    const bodyLimit = LARGE_BODY_LIMITS.get(routeKey) ?? MAX_BODY_BYTES;
     let body = '';
     let tooLarge = false;
     req.on('data', (c: Buffer) => {
       if (tooLarge) return;
       body += c.toString();
-      if (body.length > MAX_BODY_BYTES) {
+      if (body.length > bodyLimit) {
         tooLarge = true;
         res.writeHead(413, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: 'payload_too_large' }));
@@ -70,7 +74,7 @@ export async function createGatewayServer(opts: GatewayOptions): Promise<Gateway
         res.end();
         return;
       }
-      const handler = routes.get(`${req.method} ${(req.url ?? '').split('?')[0]}`);
+      const handler = routes.get(routeKey);
       if (!handler) {
         res.writeHead(404, { 'Content-Type': 'application/json', ...cors });
         res.end(JSON.stringify({ error: 'not_found' }));
