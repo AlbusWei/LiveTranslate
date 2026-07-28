@@ -15,9 +15,13 @@ class FakeTransport implements ITranslateTransport {
   finished = false;
   aborted = false;
   failNextConnect = false;
+  deferConnect = false;
+  resolveConnect: (() => void) | null = null;
   connect(_cfg: SessionConfig): Promise<void> {
     this.connectCalls += 1;
-    return this.failNextConnect ? Promise.reject(new Error('conn refused')) : Promise.resolve();
+    if (this.failNextConnect) return Promise.reject(new Error('conn refused'));
+    if (this.deferConnect) return new Promise((r) => { this.resolveConnect = r; });
+    return Promise.resolve();
   }
   updateSession(): Promise<void> { return Promise.resolve(); }
   appendAudio(pcm16: ArrayBuffer): void { this.appended.push(pcm16); }
@@ -71,6 +75,28 @@ describe('SessionOrchestrator', () => {
     expect(transports[0]!.aborted).toBe(true);
     expect(orch.model.getSegments().length).toBe(0);
     expect(transports.length).toBe(2); // 新 session
+  });
+
+  it('drops audio pushed during reset() handshake: no append before session.update settles', async () => {
+    const transports: FakeTransport[] = [];
+    const orch = new SessionOrchestrator({
+      config: CFG,
+      transportFactory: () => {
+        const t = new FakeTransport();
+        if (transports.length === 1) t.deferConnect = true; // 第二条（reset 后）持续握手中
+        transports.push(t);
+        return t;
+      },
+    });
+    await orch.start();
+    const resetting = orch.reset();
+    // 麦克风仍在推流：握手期 append 会抢在 session.update 前到达上游（1007 断连），必须丢弃
+    orch.pushAudio(new ArrayBuffer(3200));
+    expect(transports[1]!.appended.length).toBe(0);
+    transports[1]!.resolveConnect!();
+    await resetting;
+    orch.pushAudio(new ArrayBuffer(3200)); // 握手完成后正常透传
+    expect(transports[1]!.appended.length).toBe(1);
   });
 
   it('stop() calls finish and transitions to idle', async () => {

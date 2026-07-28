@@ -22,6 +22,7 @@ export class SessionOrchestrator {
   state: OrchestratorState = 'idle';
   transport: ITranslateTransport | null = null;
   private paused = false;
+  private connecting = false; // 握手门闩：append 抢在 session.update 前会被上游 1007 断连
   private offs: Array<() => void> = [];
 
   constructor(private opts: OrchestratorOptions) {}
@@ -34,19 +35,24 @@ export class SessionOrchestrator {
   async start(): Promise<void> {
     const t = this.opts.transportFactory();
     this.transport = t;
+    this.connecting = true;
     for (const k of ALL_KINDS) {
       this.offs.push(t.on(k, (ev) => {
         this.model.apply(ev);
         this.opts.onEvent?.(ev);
       }));
     }
-    await t.connect(this.opts.config);
+    try {
+      await t.connect(this.opts.config);
+    } finally {
+      this.connecting = false;
+    }
     this.paused = false;
     this.setState('running');
   }
 
   pushAudio(pcm16: ArrayBuffer): void {
-    if (this.state !== 'running' || this.paused) return; // R4：暂停=停止 append
+    if (this.state !== 'running' || this.paused || this.connecting) return; // R4：暂停/握手中=丢弃
     this.transport?.appendAudio(pcm16);
   }
 
