@@ -1,6 +1,6 @@
 import { app, BrowserWindow, ipcMain } from 'electron';
 import { join } from 'node:path';
-import { createGatewayServer, SettingsStore } from '@livetranslate/gateway';
+import { createGatewayServer, type GatewayHandle, SettingsStore } from '@livetranslate/gateway';
 import { SafeStorageKeyStore } from './keyStore';
 
 // 验收/调试：Chromium fake media（须在 app ready 前追加开关）
@@ -13,11 +13,13 @@ if (process.env.LT_FAKE_MEDIA === '1') {
 }
 
 let gatewayPort = 0;
+let gatewayHandle: GatewayHandle | null = null;
 
 async function boot(): Promise<void> {
   const dataDir = app.getPath('userData');
   const settings = new SettingsStore(join(dataDir, 'settings.json'), new SafeStorageKeyStore());
   const gateway = await createGatewayServer({ settings, dataDir, port: 0 }); // 随机端口，避免冲突
+  gatewayHandle = gateway;
   gatewayPort = gateway.port;
 
   const win = new BrowserWindow({
@@ -44,5 +46,9 @@ ipcMain.on('lt:gateway-port', (e) => {
   e.returnValue = gatewayPort;
 });
 
-app.whenReady().then(boot);
+app.whenReady().then(() => boot().catch((err) => console.error('[desktop] boot failed:', err)));
+app.on('before-quit', () => {
+  void gatewayHandle?.close().catch(() => {});
+  gatewayHandle = null;
+});
 app.on('window-all-closed', () => app.quit());
