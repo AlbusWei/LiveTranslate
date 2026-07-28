@@ -49,3 +49,10 @@ input, select, textarea { background: #262b3a; color: #e8eaf0; border: 1px solid
 .segment-wave { display: block; margin: 4px 0; background: #14161c; border-radius: 4px; }
 .dub-exports { display: flex; gap: 16px; margin-bottom: 12px; }
 .dub-exports a { color: #4c9aff; }
+.wizard { max-width: 560px; margin: 40px auto; }
+.wizard-step { display: flex; flex-direction: column; gap: 12px; }
+.device-picker { padding: 6px; }
+.volume-meter { height: 12px; background: #222; border-radius: 6px; overflow: hidden; }
+.volume-fill { height: 100%; background: #4caf50; transition: width 80ms linear; }
+.warn-box { border: 1px solid #d33; background: rgba(221, 51, 51, 0.12); padding: 12px; border-radius: 6px; }
+.hint { color: #999; font-size: 13px; }

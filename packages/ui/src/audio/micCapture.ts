@@ -1,4 +1,5 @@
 import { downsampleTo16kPcm16, PcmChunker } from '@livetranslate/core';
+import { rmsLevel } from './rms';
 import workletUrl from './pcm16-worklet.js?url';
 
 export interface MicCaptureOptions {
@@ -33,11 +34,7 @@ export async function startMicCapture(opts: MicCaptureOptions): Promise<MicCaptu
   node.port.onmessage = (e: MessageEvent<Float32Array>) => {
     if (paused) return;
     const f32 = e.data;
-    if (opts.onLevel) {
-      let sum = 0;
-      for (let i = 0; i < f32.length; i++) sum += f32[i]! * f32[i]!;
-      opts.onLevel(Math.sqrt(sum / f32.length));
-    }
+    if (opts.onLevel) opts.onLevel(rmsLevel(f32));
     chunker.push(downsampleTo16kPcm16(f32, ctx.sampleRate));
   };
   source.connect(node);
