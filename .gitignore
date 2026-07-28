@@ -12,3 +12,5 @@ release/
 *.tsbuildinfo
 apps/desktop/release/
 apps/desktop/ui/
+e2e/test-results/
+e2e/playwright-report/

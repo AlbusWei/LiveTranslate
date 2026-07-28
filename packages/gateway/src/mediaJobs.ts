@@ -123,7 +123,8 @@ export async function processMediaJob(deps: MediaDeps, jobId: string, overrides:
       const key = deps.settings.getApiKey();
       if (!host || !key) throw new Error('gateway_not_configured：API Key 或 Workspace Host 未配置');
       transport = new WsTransport({
-        url: `wss://${host}/api-ws/v1/realtime?model=${MODEL}`,
+        // E2E 用 LT_UPSTREAM_SCHEME=ws 指向本地 mock；生产缺省 wss（与 relay 的 upstreamScheme 选项对称）
+        url: `${process.env.LT_UPSTREAM_SCHEME === 'ws' ? 'ws' : 'wss'}://${host}/api-ws/v1/realtime?model=${MODEL}`,
         wsFactory: nodeWsFactory(key),
       });
     }

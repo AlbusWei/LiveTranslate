@@ -1,0 +1,17 @@
+{
+  "name": "@livetranslate/e2e",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@livetranslate/gateway": "workspace:*",
+    "@playwright/test": "^1.48.0",
+    "@types/ws": "^8.5.12",
+    "tsx": "^4.19.0",
+    "typescript": "^5.5.4",
+    "vite": "^5.4.0",
+    "ws": "^8.18.0"
+  }
+}
