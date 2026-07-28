@@ -1,10 +1,16 @@
 import { useEffect, useRef, useState } from 'react';
-import { LANGUAGES, bytesToBase64, supportsAudioOutput } from '@livetranslate/core';
+import {
+  LANGUAGES, OUTPUT_SAMPLE_RATE, bytesToBase64, supportsAudioOutput, wavDurationSeconds,
+  type DubPlacement, type DubSegmentTiming,
+} from '@livetranslate/core';
 import {
   createGatewayApi, createMediaJob, fetchMediaJob, fetchSegmentAudio, fetchSegments, mediaFileUrl,
   type MediaJobStatusDto, type SegmentDto,
 } from '../api';
 import { createPlayerSink } from '../audio/playerSink';
+import { DriftBar } from '../components/DriftBar';
+import { SegmentWave } from '../components/SegmentWave';
+import { DubPlaybackController } from '../state/dubPlayback';
 
 type Phase = 'pick' | 'uploading' | 'processing' | 'done' | 'failed';
 
@@ -12,6 +18,15 @@ const fmtMs = (ms: number | null): string => {
   if (ms === null) return '--:--';
   const s = Math.floor(ms / 1000);
   return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+};
+
+// WAV（PCM16LE mono）→ 归一化采样：右栏译文段波形用
+const wavToFloat32 = (wav: Uint8Array): Float32Array => {
+  const pcm = wav.subarray(44);
+  const dv = new DataView(pcm.buffer, pcm.byteOffset, pcm.byteLength);
+  const out = new Float32Array(Math.floor(pcm.byteLength / 2));
+  for (let i = 0; i < out.length; i++) out[i] = dv.getInt16(i * 2, true) / 32768;
+  return out;
 };
 
 export function FileDubPage(): JSX.Element {
@@ -30,6 +45,67 @@ export function FileDubPage(): JSX.Element {
   // 原声播放：原始媒体走原时间轴，双栏按 VAD 起止同步高亮（spec 5.2 工作台）
   const mediaRef = useRef<HTMLAudioElement | HTMLVideoElement | null>(null);
   const [srcSeq, setSrcSeq] = useState<number | null>(null);
+  // 配音回放（T24）：顺延时间轴调度 + 漂移可视化
+  const [placements, setPlacements] = useState<DubPlacement[]>([]);
+  const [dubPlaying, setDubPlaying] = useState(false);
+  const [currentSeq, setCurrentSeq] = useState<number | null>(null);
+  const [dubWaves, setDubWaves] = useState<Map<number, Float32Array>>(new Map());
+  const [srcAudio, setSrcAudio] = useState<{ samples: Float32Array; sampleRate: number } | null>(null);
+  const audioCache = useRef(new Map<number, Uint8Array>());
+  const controller = useRef<DubPlaybackController | null>(null);
+
+  async function initDubPlayback(segs: SegmentDto[], sessionId: string): Promise<void> {
+    const timings: DubSegmentTiming[] = [];
+    const waves = new Map<number, Float32Array>();
+    for (const s of segs) {
+      if (!s.audio_path || s.vad_start_ms === null || s.vad_end_ms === null) continue;
+      const wav = await fetchSegmentAudio(sessionId, s.seq);
+      audioCache.current.set(s.seq, wav);
+      waves.set(s.seq, wavToFloat32(wav));
+      timings.push({
+        seq: s.seq,
+        srcStartMs: s.vad_start_ms,
+        srcEndMs: s.vad_end_ms,
+        dubDurationMs: Math.round(wavDurationSeconds(wav.length - 44, OUTPUT_SAMPLE_RATE) * 1000), // 去掉 44 字节 WAV 头
+      });
+    }
+    const c = new DubPlaybackController({
+      now: () => performance.now(),
+      schedule: (cb, delayMs) => {
+        const handle = window.setTimeout(cb, delayMs);
+        return () => window.clearTimeout(handle);
+      },
+      playSegment: (seq) => {
+        const wav = audioCache.current.get(seq);
+        if (wav) void sink.current.play(wav);
+      },
+    });
+    setPlacements(c.load(timings));
+    setDubWaves(waves);
+    controller.current = c;
+  }
+
+  useEffect(() => {
+    if (!dubPlaying) return;
+    const handle = setInterval(() => setCurrentSeq(controller.current?.currentSeq() ?? null), 200);
+    return () => clearInterval(handle);
+  }, [dubPlaying]);
+
+  // 左栏原声波形：解码失败仅降级不显示，不阻断工作台
+  useEffect(() => {
+    if (phase !== 'done' || !jobId) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const buf = await (await fetch(mediaFileUrl(jobId))).arrayBuffer();
+        const ac = new AudioContext();
+        const decoded = await ac.decodeAudioData(buf);
+        void ac.close();
+        if (!cancelled) setSrcAudio({ samples: decoded.getChannelData(0), sampleRate: decoded.sampleRate });
+      } catch { /* 波形是增强展示 */ }
+    })();
+    return () => { cancelled = true; };
+  }, [phase, jobId]);
 
   useEffect(() => {
     void createGatewayApi().getSettings().then(({ settings }) => {
@@ -48,7 +124,9 @@ export function FileDubPage(): JSX.Element {
         setStatus(st);
         if (st.job.status === 'done' && st.job.session_id) {
           clearInterval(timer);
-          setSegments(await fetchSegments(st.job.session_id));
+          const segs = await fetchSegments(st.job.session_id);
+          setSegments(segs);
+          await initDubPlayback(segs, st.job.session_id);
           setPhase('done');
         } else if (st.job.status === 'failed') {
           clearInterval(timer);
@@ -96,6 +174,30 @@ export function FileDubPage(): JSX.Element {
     const t = el.currentTime * 1000;
     const hit = segments.find((s) => s.vad_start_ms !== null && s.vad_end_ms !== null && s.vad_start_ms <= t && t < s.vad_end_ms);
     setSrcSeq(hit ? hit.seq : null);
+  }
+
+  // 配音回放：只出右侧译文声；视频时左栏画面按原时间轴静音同步
+  function startDubPlayback(): void {
+    const c = controller.current;
+    if (!c) return;
+    mediaRef.current?.pause();
+    if (isVideo && mediaRef.current) {
+      mediaRef.current.muted = true;
+      mediaRef.current.currentTime = c.positionMs() / 1000;
+      void mediaRef.current.play();
+    }
+    c.play();
+    setDubPlaying(true);
+  }
+
+  function pauseDubPlayback(): void {
+    controller.current?.pause();
+    sink.current.stop();
+    if (isVideo && mediaRef.current) {
+      mediaRef.current.pause();
+      mediaRef.current.muted = false;
+    }
+    setDubPlaying(false);
   }
 
   const progress = status?.progress ?? null;
@@ -167,25 +269,45 @@ export function FileDubPage(): JSX.Element {
               : <audio controls src={mediaFileUrl(jobId)} ref={(el) => { mediaRef.current = el; }} onTimeUpdate={onSourceTimeUpdate} onPause={() => setSrcSeq(null)} onEnded={() => setSrcSeq(null)} />}
             <button className="secondary" onClick={() => { void mediaRef.current?.play(); }}>▶ 原声播放</button>
           </div>
+          <div className="dub-playback">
+            <button disabled={dubPlaying} onClick={startDubPlayback}>▶ 配音回放</button>
+            <button disabled={!dubPlaying} onClick={pauseDubPlayback}>⏸ 暂停</button>
+            <button onClick={() => { pauseDubPlayback(); controller.current?.seek(0); setCurrentSeq(null); }}>⏮ 回到开头</button>
+            <DriftBar placements={placements} currentSeq={currentSeq} totalMs={progress?.totalMs ?? 0} />
+          </div>
           <div className="dub-columns">
             <div className="dub-col">
               <h3>原文</h3>
               {segments.map((s) => (
-                <div key={s.seq} className={`dub-cell${srcSeq === s.seq ? ' playing' : ''}`}>
+                <div key={s.seq} className={`dub-cell${srcSeq === s.seq || currentSeq === s.seq ? ' playing' : ''}`}>
                   <span className="segment-meta">{fmtMs(s.vad_start_ms)}–{fmtMs(s.vad_end_ms)}{s.source_lang ? ` · ${s.source_lang}` : ''}</span>
                   <p className="segment-source">{s.source_text}</p>
+                  {srcAudio && s.vad_start_ms !== null && s.vad_end_ms !== null && (
+                    <SegmentWave samples={srcAudio.samples.subarray(
+                      Math.floor((s.vad_start_ms / 1000) * srcAudio.sampleRate),
+                      Math.floor((s.vad_end_ms / 1000) * srcAudio.sampleRate),
+                    )} color="#6a9" />
+                  )}
                 </div>
               ))}
             </div>
             <div className="dub-col">
               <h3>译文</h3>
-              {segments.map((s) => (
-                <div key={s.seq} className={`dub-cell${srcSeq === s.seq ? ' playing' : ''}`}>
-                  <span className="segment-meta">#{s.seq}</span>
-                  <p className="segment-target">{s.target_text}</p>
-                  {s.audio_path && <button onClick={() => void playSegment(s)}>▶ 播放译文</button>}
-                </div>
-              ))}
+              {segments.map((s) => {
+                const p = placements.find((x) => x.seq === s.seq);
+                return (
+                  <div key={s.seq} className={`dub-cell${srcSeq === s.seq || currentSeq === s.seq ? ' playing' : ''}`}>
+                    <span className="segment-meta">
+                      #{s.seq}
+                      {p && ` · 时长 ${((p.dubEndMs - p.dubStartMs) / 1000).toFixed(1)}s`}
+                      {p && p.driftMs > 0 && <span className="warn-text"> · 漂移 +{(p.driftMs / 1000).toFixed(1)}s</span>}
+                    </span>
+                    <p className="segment-target">{s.target_text}</p>
+                    {dubWaves.get(s.seq) && <SegmentWave samples={dubWaves.get(s.seq)!} />}
+                    {s.audio_path && <button onClick={() => void playSegment(s)}>▶ 播放译文</button>}
+                  </div>
+                );
+              })}
             </div>
           </div>
         </div>

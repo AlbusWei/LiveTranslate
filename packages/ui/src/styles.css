@@ -40,3 +40,10 @@ input, select, textarea { background: #262b3a; color: #e8eaf0; border: 1px solid
 .dub-cell { border-bottom: 1px solid #2a2a2a; padding: 8px 0; }
 .dub-cell.playing { background: #24303f; }
 .error-text { color: #e5484d; }
+.warn-text { color: #b58900; }
+.dub-playback { display: flex; align-items: center; gap: 8px; margin: 12px 0; }
+.drift-bar { position: relative; flex: 1; height: 18px; background: #1c1c1c; border-radius: 4px; }
+.drift-chip { position: absolute; top: 3px; height: 12px; background: #2f6feb; border-radius: 2px; }
+.drift-chip.drifted { background: #b58900; }
+.drift-chip.active { outline: 2px solid #fff; }
+.segment-wave { display: block; margin: 4px 0; background: #14161c; border-radius: 4px; }
