@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync } from 'node:fs';
 import type { ServerResponse } from 'node:http';
 import { join } from 'node:path';
 import type { RouteHandler } from './server';
@@ -56,6 +56,48 @@ export function registerHistoryRoutes(routes: Map<string, RouteHandler>, deps: H
         endedAt: b.endedAt, eventCount: lines.length, errorCount: errors,
       });
     }
+    json(res, 200, { ok: true });
+  });
+
+  const query = (req: { url?: string }): URLSearchParams =>
+    new URL(req.url ?? '', 'http://gateway.local').searchParams;
+
+  routes.set('GET /sessions', (req, res) => {
+    const mode = query(req).get('mode');
+    json(res, 200, { sessions: deps.storage.listSessions(mode ? (mode as SessionMode) : undefined) });
+  });
+
+  routes.set('GET /segments', (req, res) => {
+    json(res, 200, { segments: deps.storage.listSegments(query(req).get('sessionId') ?? '') });
+  });
+
+  routes.set('GET /segment-audio', (req, res) => {
+    const q = query(req);
+    const seq = Number(q.get('seq'));
+    const row = deps.storage.listSegments(q.get('sessionId') ?? '').find((s) => s.seq === seq);
+    if (!row?.audio_path || !existsSync(row.audio_path)) {
+      json(res, 404, { error: 'audio_not_found' });
+      return;
+    }
+    res.writeHead(200, { 'Content-Type': 'audio/wav' });
+    res.end(readFileSync(row.audio_path));
+  });
+
+  routes.set('GET /session-log', (req, res) => {
+    const file = logFilePath(deps.dataDir, query(req).get('sessionId') ?? '');
+    if (!existsSync(file)) {
+      json(res, 404, { error: 'log_not_found' });
+      return;
+    }
+    res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end(readFileSync(file));
+  });
+
+  routes.set('POST /sessions/delete', (_req, res, body) => {
+    const b = JSON.parse(body) as { id: string };
+    deps.storage.deleteSession(b.id); // 级联删 segments（T16 外键 CASCADE）
+    rmSync(join(deps.dataDir, 'audio', b.id), { recursive: true, force: true });
+    // 事件日志文件按 spec §6.6 保留策略保留，由用户手动清理
     json(res, 200, { ok: true });
   });
 }
