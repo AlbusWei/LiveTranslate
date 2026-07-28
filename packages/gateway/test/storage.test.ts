@@ -62,4 +62,17 @@ describe('Storage', () => {
     expect(storage.getSession('d')).toBeUndefined();
     expect(storage.listSegments('d')).toEqual([]);
   });
+
+  it('media_jobs: pending → processing → done with artifacts (spec 5.2)', () => {
+    storage.insertMediaJob({ id: 'job_1', sourcePath: '/media/job_1/in.mp4', frameConfigJson: '{"framesEnabled":true,"fps":1}', createdAt: 42 });
+    expect(storage.getMediaJob('job_1')?.status).toBe('pending');
+    storage.updateMediaJob('job_1', { status: 'processing' });
+    expect(storage.getMediaJob('job_1')?.status).toBe('processing');
+    storage.updateMediaJob('job_1', { status: 'done', sessionId: 'sess_j1', artifactsJson: '{"segmentCount":3}' });
+    const row = storage.getMediaJob('job_1')!;
+    expect(row.status).toBe('done');
+    expect(row.session_id).toBe('sess_j1');
+    expect(JSON.parse(row.artifacts_json!)).toEqual({ segmentCount: 3 });
+    expect(storage.getMediaJob('nope')).toBeNull();
+  });
 });

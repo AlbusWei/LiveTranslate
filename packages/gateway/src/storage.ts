@@ -23,6 +23,13 @@ export interface SessionLogRow {
   event_count: number; error_count: number;
 }
 
+export interface MediaJobRow {
+  id: string; source_path: string; frame_config_json: string;
+  artifacts_json: string | null;
+  status: 'pending' | 'processing' | 'done' | 'failed';
+  session_id: string | null; created_at: number;
+}
+
 export class Storage {
   constructor(private db: Db, private dataDir: string) {}
 
@@ -85,5 +92,19 @@ export class Storage {
 
   getSessionLog(sessionId: string): SessionLogRow | undefined {
     return this.db.prepare('SELECT * FROM session_logs WHERE session_id = ?').get(sessionId) as SessionLogRow | undefined;
+  }
+
+  insertMediaJob(row: { id: string; sourcePath: string; frameConfigJson: string; createdAt: number }): void {
+    this.db.prepare(`INSERT INTO media_jobs (id, source_path, frame_config_json, status, created_at) VALUES (?, ?, ?, 'pending', ?)`)
+      .run(row.id, row.sourcePath, row.frameConfigJson, row.createdAt);
+  }
+
+  updateMediaJob(id: string, patch: { status: MediaJobRow['status']; sessionId?: string; artifactsJson?: string }): void {
+    this.db.prepare('UPDATE media_jobs SET status = ?, session_id = COALESCE(?, session_id), artifacts_json = COALESCE(?, artifacts_json) WHERE id = ?')
+      .run(patch.status, patch.sessionId ?? null, patch.artifactsJson ?? null, id);
+  }
+
+  getMediaJob(id: string): MediaJobRow | null {
+    return (this.db.prepare('SELECT * FROM media_jobs WHERE id = ?').get(id) as MediaJobRow | undefined) ?? null;
   }
 }

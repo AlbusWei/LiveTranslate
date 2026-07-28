@@ -7,6 +7,7 @@ import { SessionLogFiles } from './logFiles';
 import { openDb } from './db';
 import { Storage } from './storage';
 import { registerHistoryRoutes } from './historyRoutes';
+import { registerMediaRoutes } from './mediaJobs';
 import type { SettingsStore } from './settings';
 
 export interface GatewayOptions {
@@ -47,6 +48,7 @@ export async function createGatewayServer(opts: GatewayOptions): Promise<Gateway
   const db = openDb(join(opts.dataDir, 'livetranslate.db'));
   const storage = new Storage(db, opts.dataDir);
   registerHistoryRoutes(routes, { storage, dataDir: opts.dataDir });
+  registerMediaRoutes(routes, { storage, settings: opts.settings, dataDir: opts.dataDir, logFiles });
   const server = createServer((req, res) => {
     let body = '';
     let tooLarge = false;
