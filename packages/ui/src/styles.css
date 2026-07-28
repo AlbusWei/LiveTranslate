@@ -27,3 +27,7 @@ input, select, textarea { background: #262b3a; color: #e8eaf0; border: 1px solid
 .segment-meta { margin-top: 6px; display: flex; gap: 10px; align-items: center; }
 .lang-tag { margin-left: 6px; font-size: 12px; color: #6a9; }
 .usage-tag { font-size: 12px; color: #888; }
+.history-row { display: flex; gap: 8px; margin-bottom: 4px; }
+.history-row.open > button:first-child { font-weight: 600; }
+.history-detail { margin-top: 12px; border-top: 1px solid #333; padding-top: 12px; }
+.log-view { max-height: 320px; overflow: auto; background: #111; padding: 8px; font-size: 12px; }
