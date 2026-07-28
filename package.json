@@ -5,6 +5,8 @@
   "scripts": {
     "test": "pnpm -r --if-present test",
     "build": "pnpm -r --if-present build",
-    "typecheck": "pnpm -r --if-present typecheck"
+    "typecheck": "pnpm -r --if-present typecheck",
+    "dist:desktop": "pnpm --filter @livetranslate/desktop dist",
+    "build:web": "pnpm --filter @livetranslate/ui build"
   }
 }

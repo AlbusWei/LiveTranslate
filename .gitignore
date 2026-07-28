@@ -10,3 +10,5 @@ scratch/
 Thumbs.db
 release/
 *.tsbuildinfo
+apps/desktop/release/
+apps/desktop/ui/

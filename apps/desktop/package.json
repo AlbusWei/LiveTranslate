@@ -6,17 +6,20 @@
   "scripts": {
     "build": "esbuild src/main.ts src/preload.ts --bundle --platform=node --external:electron --external:better-sqlite3 --format=cjs --outdir=dist --out-extension:.js=.cjs",
     "dev": "esbuild src/main.ts src/preload.ts --bundle --platform=node --external:electron --external:better-sqlite3 --format=cjs --outdir=dist --out-extension:.js=.cjs && electron .",
+    "copy:ui": "node -e \"const fs=require('node:fs');fs.rmSync('ui',{recursive:true,force:true});fs.cpSync('../../packages/ui/dist','ui',{recursive:true});\"",
+    "dist": "pnpm build && pnpm --filter @livetranslate/ui build && pnpm copy:ui && electron-builder --config electron-builder.yml",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@ffmpeg-installer/ffmpeg": "^1.1.0",
-    "@ffprobe-installer/ffprobe": "^2.1.2",
-    "@livetranslate/core": "workspace:*",
-    "@livetranslate/gateway": "workspace:*"
+    "@ffprobe-installer/ffprobe": "^2.1.2"
   },
   "devDependencies": {
+    "@livetranslate/core": "workspace:*",
+    "@livetranslate/gateway": "workspace:*",
     "@types/node": "^22.7.4",
     "electron": "^35.0.0",
+    "electron-builder": "^25.1.8",
     "esbuild": "^0.24.0",
     "typescript": "^5.5.4"
   }
