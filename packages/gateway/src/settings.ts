@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync, copyFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 
 export interface HotwordTable {
@@ -54,9 +54,15 @@ export class SettingsStore {
   private settings: AppSettings;
 
   constructor(private filePath: string, private keyStore: KeyStore) {
-    this.settings = existsSync(filePath)
-      ? { ...DEFAULT_SETTINGS, ...(JSON.parse(readFileSync(filePath, 'utf8')) as Partial<AppSettings>) }
-      : { ...DEFAULT_SETTINGS };
+    this.settings = { ...DEFAULT_SETTINGS };
+    if (existsSync(filePath)) {
+      try {
+        this.settings = { ...DEFAULT_SETTINGS, ...(JSON.parse(readFileSync(filePath, 'utf8')) as Partial<AppSettings>) };
+      } catch {
+        // 损坏的 settings.json：保留副本供排查，回退默认值
+        try { copyFileSync(filePath, `${filePath}.corrupt-${Date.now()}`); } catch { /* 副本失败不阻断启动 */ }
+      }
+    }
   }
 
   get(): AppSettings {

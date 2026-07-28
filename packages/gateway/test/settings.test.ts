@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { mkdtempSync, readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { SettingsStore, DEFAULT_SETTINGS, type KeyStore } from '../src/settings';
@@ -50,5 +50,15 @@ describe('SettingsStore', () => {
     });
     const reloaded = new SettingsStore(file, new MemKeyStore());
     expect(reloaded.get().hotwordTables[0]!.phrases[0]!.target).toBe('contrast agent');
+  });
+
+  it('corrupted settings.json falls back to defaults and keeps a .corrupt copy', () => {
+    const file = join(dir, 'settings.json');
+    writeFileSync(file, '{ not valid json', 'utf8');
+    const s = new SettingsStore(file, new MemKeyStore());
+    expect(s.get()).toEqual(DEFAULT_SETTINGS);
+    const corruptCopies = readdirSync(dir).filter((f) => f.startsWith('settings.json.corrupt-'));
+    expect(corruptCopies.length).toBe(1);
+    expect(readFileSync(join(dir, corruptCopies[0]!), 'utf8')).toBe('{ not valid json');
   });
 });

@@ -10,6 +10,8 @@ export interface GatewayOptions {
   dataDir: string;
   port: number; // 0 = 随机端口
   upstreamScheme?: 'ws' | 'wss';
+  maxPending?: number; // 透传 relay，测试用
+  handshakeTimeoutMs?: number; // 透传 relay，测试用
 }
 
 export interface GatewayHandle {
@@ -20,15 +22,27 @@ export interface GatewayHandle {
 
 export type RouteHandler = (req: IncomingMessage, res: ServerResponse, body: string) => Promise<void> | void;
 
-// 后续任务（T9/T18/T19/T25/T32/T34）向这张表注册 REST 路由
-export const routes = new Map<string, RouteHandler>();
+const MAX_BODY_BYTES = 1_000_000; // 1MB：设置/术语表足够，防恶意大包体
 
 export async function createGatewayServer(opts: GatewayOptions): Promise<GatewayHandle> {
+  // 实例私有路由表：多 gateway 实例互不干扰（后续任务 T18/T19/T25/T32/T34 在此注册）
+  const routes = new Map<string, RouteHandler>();
   const logFiles = new SessionLogFiles(opts.dataDir);
   const server = createServer((req, res) => {
     let body = '';
-    req.on('data', (c: Buffer) => { body += c.toString(); });
+    let tooLarge = false;
+    req.on('data', (c: Buffer) => {
+      if (tooLarge) return;
+      body += c.toString();
+      if (body.length > MAX_BODY_BYTES) {
+        tooLarge = true;
+        res.writeHead(413, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'payload_too_large' }));
+        req.destroy();
+      }
+    });
     req.on('end', () => {
+      if (tooLarge) return;
       const handler = routes.get(`${req.method} ${(req.url ?? '').split('?')[0]}`);
       if (!handler) {
         res.writeHead(404, { 'Content-Type': 'application/json' });
@@ -39,7 +53,13 @@ export async function createGatewayServer(opts: GatewayOptions): Promise<Gateway
     });
   });
   const wss = new WebSocketServer({ server, path: '/realtime' });
-  attachRealtimeRelay(wss, { settings: opts.settings, logFiles, upstreamScheme: opts.upstreamScheme });
+  attachRealtimeRelay(wss, {
+    settings: opts.settings,
+    logFiles,
+    upstreamScheme: opts.upstreamScheme,
+    maxPending: opts.maxPending,
+    handshakeTimeoutMs: opts.handshakeTimeoutMs,
+  });
   routes.set('GET /settings', (_req, res) => {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ settings: opts.settings.get(), maskedKey: opts.settings.getMaskedKey(), hasKey: opts.settings.hasApiKey() }));
