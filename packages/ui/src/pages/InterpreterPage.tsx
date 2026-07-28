@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  LANGUAGES, OUTPUT_SAMPLE_RATE, SessionOrchestrator, UsageMeter, WsTransport,
+  AutoTransport, LANGUAGES, OUTPUT_SAMPLE_RATE, SessionOrchestrator, UsageMeter, WebRtcTransport, WsTransport,
   base64ToBytes, supportsAudioOutput,
-  type NormalizedEvent, type OrchestratorState, type SessionConfig, type TranscriptSegment,
+  type ITranslateTransport, type NormalizedEvent, type OrchestratorState, type SessionConfig, type TranscriptSegment,
 } from '@livetranslate/core';
 import { getPlatform } from '../platform';
 import { browserWsFactory } from '../wsFactory';
-import { createGatewayApi, createSessionRecord, finishSessionRecord, postSegmentRecord } from '../api';
+import { createGatewayApi, createSessionRecord, exchangeSdp, finishSessionRecord, postSegmentRecord } from '../api';
+import { browserPeerFactory } from '../rtcFactory';
 import { startMicCapture, type MicCaptureHandle } from '../audio/micCapture';
 import { StreamPlayer } from '../audio/streamPlayer';
 import { ChannelWizard, type ChannelChoice } from '../wizard/ChannelWizard';
@@ -18,6 +19,9 @@ export function InterpreterPage(): JSX.Element {
   const [targetLanguage, setTargetLanguage] = useState('en');
   const [useClone, setUseClone] = useState(true); // 默认 once 复刻
   const [defaultVoice, setDefaultVoice] = useState('Tina');
+  const [protocolPreference, setProtocolPreference] = useState<'auto' | 'ws'>('ws');
+  const [channelNotice, setChannelNotice] = useState<string | null>(null);
+  const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
   const [latencyMs, setLatencyMs] = useState<number | null>(null);
   const [segments, setSegments] = useState<readonly TranscriptSegment[]>([]);
   const [startError, setStartError] = useState<string | null>(null);
@@ -35,6 +39,7 @@ export function InterpreterPage(): JSX.Element {
       setSourceLanguage(r.settings.sourceLanguage || 'auto');
       setTargetLanguage(r.settings.targetLanguage || 'en');
       setDefaultVoice(r.settings.defaultVoice || 'Tina');
+      setProtocolPreference(r.settings.protocolPreference); // 设置页“自动/强制 WS”（T11）
     });
   }, []);
 
@@ -85,14 +90,34 @@ export function InterpreterPage(): JSX.Element {
 
   async function start(): Promise<void> {
     if (!choice) return;
+    const chosen = choice; // 收窄不进嵌套函数，显式捕获非空值
     const ctx = new AudioContext({ sampleRate: OUTPUT_SAMPLE_RATE }); // P9：输出 24kHz
     const sinkable = ctx as AudioContext & { setSinkId?: (id: string) => Promise<void> };
     if (sinkable.setSinkId) await sinkable.setSinkId(choice.outputDeviceId); // 向导选定的播音设备
     ctxRef.current = ctx;
     playerRef.current = new StreamPlayer(ctx);
+    function makeTransport(): ITranslateTransport {
+      const makeWs = () => new WsTransport({ url: getPlatform().gatewayWsUrl(), wsFactory: browserWsFactory });
+      if (protocolPreference !== 'auto') return makeWs(); // 设置页强制 WS 时不尝试 WebRTC
+      return new AutoTransport({
+        makeWs,
+        makeWebRtc: () => new WebRtcTransport({
+          peerFactory: browserPeerFactory,
+          sdpExchange: exchangeSdp,
+          getLocalStream: () => navigator.mediaDevices.getUserMedia({
+            audio: { deviceId: { exact: chosen.inputDeviceId }, echoCancellation: true, noiseSuppression: true },
+          }),
+        }),
+        onChannelChosen: (kind, reason) => {
+          setChannelNotice(reason === 'fallback'
+            ? 'WebRTC 不可用（未开白名单或网络受限），已自动降级为 WS 通道'
+            : null); // R5：降级必须可见
+        },
+      });
+    }
     const orch = new SessionOrchestrator({
       config: buildConfig(),
-      transportFactory: () => new WsTransport({ url: getPlatform().gatewayWsUrl(), wsFactory: browserWsFactory }),
+      transportFactory: makeTransport,
       onStateChange: setState,
       onEvent: handleEvent,
     });
@@ -103,6 +128,16 @@ export function InterpreterPage(): JSX.Element {
     setStartError(null);
     try {
       await orch.start();
+      const remote = orch.transport?.getRemoteAudio();
+      if (remote) {
+        // WebRTC 通道：译音走远端 RTP 轨，audio-delta 不会出现，StreamPlayer 自然闲置
+        const el = new Audio();
+        el.srcObject = remote;
+        const sinkEl = el as HTMLAudioElement & { setSinkId?: (id: string) => Promise<void> };
+        if (sinkEl.setSinkId) await sinkEl.setSinkId(choice.outputDeviceId);
+        await el.play();
+        remoteAudioRef.current = el;
+      }
       // D6：M4 仅 WS 通道，浏览器侧 AEC/NS 兑底回声
       micRef.current = await startMicCapture({
         deviceId: choice.inputDeviceId,
@@ -127,17 +162,22 @@ export function InterpreterPage(): JSX.Element {
     micRef.current?.pause();
     orchRef.current?.pause(); // R4：保连接停推流
     playerRef.current?.flush(); // 暂停立即静音，不留残余队列
+    if (remoteAudioRef.current) remoteAudioRef.current.muted = true;
   }
 
   function resume(): void {
     micRef.current?.resume();
     orchRef.current?.resume();
+    if (remoteAudioRef.current) remoteAudioRef.current.muted = false;
   }
 
   async function stop(): Promise<void> {
     micRef.current?.stop();
     micRef.current = null;
     await orchRef.current?.stop(); // P3：finish → finished → 客户端 close（内部置 state='idle'）
+    remoteAudioRef.current?.pause();
+    remoteAudioRef.current = null;
+    setChannelNotice(null);
     playerRef.current?.flush();
     playerRef.current = null;
     void ctxRef.current?.close();
@@ -189,6 +229,7 @@ export function InterpreterPage(): JSX.Element {
     <div className="interpreter-fullscreen">
       <header className="interpreter-topbar">
         <span className="channel-badge">{orchRef.current?.transport?.kind === 'webrtc' ? 'WebRTC' : 'WS'}</span>
+        {channelNotice && <span className="warn-banner">{channelNotice}</span>}
         <span>首字延迟：{latencyMs === null ? '—' : `${latencyMs}ms`}</span>
         {state === 'running' && <button onClick={pause}>暂停</button>}
         {state === 'paused' && <button onClick={resume}>恢复</button>}

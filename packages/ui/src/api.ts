@@ -131,6 +131,18 @@ export async function fetchSessionLog(sessionId: string): Promise<string | null>
 
 export const deleteSessionRecord = (id: string): Promise<void> => postJson('/sessions/delete', { id });
 
+// ---- WebRTC SDP 交换（T34）：网关代理上游，Key 不出网关 ----
+
+export async function exchangeSdp(offerSdp: string): Promise<string> {
+  const res = await fetch(`${getPlatform().gatewayHttpBase()}/webrtc/sdp`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/sdp' },
+    body: offerSdp,
+  });
+  if (!res.ok) throw new Error(`sdp exchange failed: ${res.status}`); // reject → AutoTransport 降级
+  return res.text();
+}
+
 // ---- 媒体预处理作业（T21 写入/查询侧，T23 工作台消费）：与网关 mediaJobs 路由一一对应 ----
 
 export interface MediaJobDto {

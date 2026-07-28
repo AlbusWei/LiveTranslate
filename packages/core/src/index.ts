@@ -25,3 +25,4 @@ export {
   WebRtcTransport,
   type DataChannelLike, type PeerLike, type WebRtcTransportOptions,
 } from './protocol/webrtcTransport';
+export { AutoTransport, type AutoTransportOptions, type ChannelReason } from './protocol/transportFactory';
