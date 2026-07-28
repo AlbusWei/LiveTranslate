@@ -11,8 +11,11 @@ export interface FfmpegPaths {
 // 已批准偏差：开发机 PATH 上无 ffmpeg，回退链 = env 覆盖 → 打包二进制（@ffmpeg-installer /
 // @ffprobe-installer，win32-x64 静态构建）→ PATH 名。打包包缺失（如未来精简安装）时仍退回 PATH。
 // esbuild CJS 打包（Electron 桌面壳）后 import.meta.url 为空：退回模块自带 require（B9 修复）
-const nodeRequire: NodeRequire =
-  typeof require === 'function' ? require : createRequire(import.meta.url);
+// 双模块兼容：desktop tsconfig module=CommonJS 下 import.meta 不合法，但 require 恒在、该分支为死代码；
+// ESM 上下文（gateway tsx/vitest）走 import.meta.url 合成 require。
+// 用 @ts-ignore 而非 @ts-expect-error：ESM 下该行无错可抑制，@ts-expect-error 会误报“未使用”。
+// @ts-ignore
+const nodeRequire: NodeRequire = typeof require === 'function' ? require : createRequire(import.meta.url);
 
 function bundledPath(pkg: string): string | null {
   try {
