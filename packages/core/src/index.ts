@@ -21,3 +21,7 @@ export { MAX_FRAME_BYTES, MAX_FRAME_FPS, filterOversizedFrames, rawBytesOfBase64
 export { MeetingCoordinator, SILENCE_END_MS, type CoordinatorDeps, type HotSeatState } from './meeting/meetingCoordinator';
 export { ROTATE_INPUT_TOKENS, ROTATE_PAUSE_MS, shouldRotate, type RotationInput, type RotationReason } from './session/rotationPolicy';
 export { buildMeetingMarkdown, buildMeetingTxt, type MeetingMeta, type MeetingTurnExport } from './meeting/meetingExport';
+export {
+  WebRtcTransport,
+  type DataChannelLike, type PeerLike, type WebRtcTransportOptions,
+} from './protocol/webrtcTransport';
