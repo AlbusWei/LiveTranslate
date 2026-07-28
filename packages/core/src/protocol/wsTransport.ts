@@ -42,6 +42,7 @@ export class WsTransport implements ITranslateTransport {
       ws.onerror = (err) => {
         if (!settled) {
           settled = true;
+          if (this.ws === ws) this.ws = null; // 失败后不残留旧连接，允许重新 connect
           reject(err instanceof Error ? err : new Error(String(err)));
         }
       };

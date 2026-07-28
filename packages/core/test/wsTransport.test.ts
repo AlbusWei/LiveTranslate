@@ -143,4 +143,30 @@ describe('WsTransport', () => {
       ['s2c', 'session.updated'],
     ]);
   });
+
+  it('connect(): rejects when the socket errors before session.updated', async () => {
+    const { fake, t } = setup();
+    const p = t.connect(CFG);
+    fake.onerror?.(new Error('ECONNREFUSED'));
+    await expect(p).rejects.toThrow('ECONNREFUSED');
+  });
+
+  it('connect(): can reconnect cleanly after a failed attempt (no stale state)', async () => {
+    const fakes: FakeWs[] = [];
+    const t = new WsTransport({
+      url: 'ws://gateway.test/realtime',
+      wsFactory: () => { const f = new FakeWs(); fakes.push(f); return f; },
+    });
+    const p1 = t.connect(CFG);
+    fakes[0]!.onerror?.('boom'); // 非 Error 对象也要包装成 Error
+    await expect(p1).rejects.toThrow('boom');
+    const p2 = t.connect(CFG);
+    fakes[1]!.open();
+    fakes[1]!.push({ type: 'session.created', session: { id: 'sess_2' } });
+    fakes[1]!.push({ type: 'session.updated' });
+    await expect(p2).resolves.toBeUndefined();
+    // session.update 只发到新连接，旧连接无残留写入
+    expect(fakes[0]!.sent).toEqual([]);
+    expect(fakes[1]!.sent.length).toBe(1);
+  });
 });

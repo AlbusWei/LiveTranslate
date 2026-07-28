@@ -23,7 +23,9 @@ export function base64ToBytes(b64: string): Uint8Array {
   let bits = 0;
   let o = 0;
   for (let i = 0; i < clean.length; i++) {
-    const v = REVERSE[clean.charCodeAt(i)]!;
+    const code = clean.charCodeAt(i);
+    const v = code < 128 ? REVERSE[code]! : -1;
+    if (v < 0) throw new Error(`base64ToBytes: invalid base64 character ${JSON.stringify(clean[i])} at ${i}`);
     acc = (acc << 6) | v;
     bits += 6;
     if (bits >= 8) {

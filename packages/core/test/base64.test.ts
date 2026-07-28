@@ -19,4 +19,14 @@ describe('base64', () => {
     const bytes = base64ToBytes(real);
     expect(bytes.length).toBe(66);
   });
+
+  it('round-trips empty input in both directions', () => {
+    expect(bytesToBase64(new Uint8Array(0))).toBe('');
+    expect(base64ToBytes('')).toEqual(new Uint8Array(0));
+  });
+
+  it('throws on illegal base64 characters', () => {
+    expect(() => base64ToBytes('QUJ$')).toThrow(/invalid base64/i);
+    expect(() => base64ToBytes('QUJD\u4e2d')).toThrow(/invalid base64/i); // code > 127 越界
+  });
 });
