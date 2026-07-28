@@ -76,9 +76,10 @@ export class UsageMeter {
 
   snapshot(): UsageSnapshot {
     return {
-      sessionTotal: this.sessionCumulative,
+      // 浅拷贝：防外部篡改内部累积状态（globalTotal 经 plus() 已是新对象）
+      sessionTotal: { ...this.sessionCumulative },
       globalTotal: plus(this.rotatedTotal, this.sessionCumulative),
-      lastDelta: this.last,
+      lastDelta: { ...this.last },
     };
   }
 }

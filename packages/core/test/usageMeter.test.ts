@@ -34,6 +34,17 @@ describe('UsageMeter (P6: usage is session-cumulative, must diff)', () => {
     expect(s.globalTotal.total_tokens).toBe(972 + 169);
   });
 
+  it('snapshot() returns copies: mutating them does not corrupt internal state', () => {
+    const m = new UsageMeter();
+    for (const u of SEQ) m.applyUsage(u);
+    const s = m.snapshot();
+    s.sessionTotal.total_tokens = -1;
+    s.lastDelta.total_tokens = -1;
+    const s2 = m.snapshot();
+    expect(s2.sessionTotal.total_tokens).toBe(972);
+    expect(s2.lastDelta.total_tokens).toBe(275);
+  });
+
   it('null-safe: missing audio_tokens in output details treated as 0', () => {
     const m = new UsageMeter();
     const r = m.applyUsage({
