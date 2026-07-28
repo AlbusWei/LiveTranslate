@@ -1,0 +1,11 @@
+{
+  "name": "@livetranslate/web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently -n gateway,ui \"pnpm --filter @livetranslate/gateway dev\" \"pnpm --filter @livetranslate/ui dev\""
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.0"
+  }
+}
