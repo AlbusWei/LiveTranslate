@@ -8,7 +8,9 @@ if (process.env.LT_FAKE_MEDIA === '1') {
   app.commandLine.appendSwitch('use-fake-device-for-media-stream');
   app.commandLine.appendSwitch('use-fake-ui-for-media-stream');
   if (process.env.LT_FAKE_AUDIO_FILE) {
-    app.commandLine.appendSwitch('use-file-for-fake-audio-capture', `${process.env.LT_FAKE_AUDIO_FILE}%noloop`);
+    // LT_FAKE_AUDIO_LOOP=1 循环播放（暂停/重置等长流程验收）；默认 %noloop 播一次
+    const suffix = process.env.LT_FAKE_AUDIO_LOOP === '1' ? '' : '%noloop';
+    app.commandLine.appendSwitch('use-file-for-fake-audio-capture', `${process.env.LT_FAKE_AUDIO_FILE}${suffix}`);
   }
 }
 
