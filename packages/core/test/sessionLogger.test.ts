@@ -6,6 +6,17 @@ function collect() {
   return { lines, sink: (line: string) => lines.push(line) };
 }
 
+describe('fnv1a (canonical 32-bit vectors)', () => {
+  // 公开已知值（FNV-1a 32bit 参考向量），非镜像实现断言
+  it('matches published reference values', () => {
+    expect(fnv1a('')).toBe('811c9dc5');
+    expect(fnv1a('a')).toBe('e40c292c');
+    expect(fnv1a('b')).toBe('e70c2de5');
+    expect(fnv1a('hello')).toBe('4f9f2cab');
+    expect(fnv1a('foobar')).toBe('bf9cf968');
+  });
+});
+
 describe('SessionLogger (spec 6.6)', () => {
   it('writes {ts, dir, type, payload} JSONL lines', () => {
     const { lines, sink } = collect();

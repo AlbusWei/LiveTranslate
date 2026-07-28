@@ -72,6 +72,7 @@ export class TranscriptModel {
         break;
       }
       case 'response-created': {
+        // 假定同一时刻只有一个未完成 response；若上游重叠下发，重叠的 response 合并进当前未完成段
         const seg = this.open() ?? this.pushBlank();
         seg.responseId = ev.responseId;
         seg.status = 'translating';
@@ -118,7 +119,7 @@ export class TranscriptModel {
   }
 
   getSegments(): readonly TranscriptSegment[] {
-    return this.segments;
+    return this.segments.slice(); // 防御性拷贝：防外部篡改内部数组
   }
 
   reset(): void {
