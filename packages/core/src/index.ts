@@ -9,3 +9,5 @@ export { SessionLogger, fnv1a, type SessionLoggerOptions } from './session/sessi
 export { downsampleTo16kPcm16 } from './audio/resample';
 export { PcmChunker } from './audio/pcmChunker';
 export { LANGUAGES, supportsAudioOutput, type LanguageInfo } from './i18n/languages';
+export { pcm16ToWav, wavDurationSeconds, OUTPUT_SAMPLE_RATE } from './audio/wav';
+export { AudioSegmenter } from './session/audioSegmenter';
