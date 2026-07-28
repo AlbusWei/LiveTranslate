@@ -1,8 +1,12 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
+import { join } from 'node:path';
 import { WebSocketServer } from 'ws';
 import { attachRealtimeRelay } from './relay';
 import { runSelfCheck } from './selfCheck';
 import { SessionLogFiles } from './logFiles';
+import { openDb } from './db';
+import { Storage } from './storage';
+import { registerHistoryRoutes } from './historyRoutes';
 import type { SettingsStore } from './settings';
 
 export interface GatewayOptions {
@@ -17,6 +21,7 @@ export interface GatewayOptions {
 export interface GatewayHandle {
   port: number;
   server: Server;
+  storage: Storage;
   close(): Promise<void>;
 }
 
@@ -39,6 +44,9 @@ export async function createGatewayServer(opts: GatewayOptions): Promise<Gateway
   // 实例私有路由表：多 gateway 实例互不干扰（后续任务 T18/T19/T25/T32/T34 在此注册）
   const routes = new Map<string, RouteHandler>();
   const logFiles = new SessionLogFiles(opts.dataDir);
+  const db = openDb(join(opts.dataDir, 'livetranslate.db'));
+  const storage = new Storage(db, opts.dataDir);
+  registerHistoryRoutes(routes, { storage, dataDir: opts.dataDir });
   const server = createServer((req, res) => {
     let body = '';
     let tooLarge = false;
@@ -104,8 +112,10 @@ export async function createGatewayServer(opts: GatewayOptions): Promise<Gateway
   return {
     port,
     server,
+    storage,
     close: async () => {
       await logFiles.closeAll();
+      db.close();
       wss.close();
       await new Promise<void>((r) => server.close(() => r()));
     },

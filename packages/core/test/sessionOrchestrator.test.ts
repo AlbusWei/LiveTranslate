@@ -133,4 +133,20 @@ describe('SessionOrchestrator', () => {
       vi.useRealTimers();
     }
   });
+
+  it('forwards every normalized event to opts.onEvent (for AudioSegmenter/UsageMeter taps)', async () => {
+    const t = new FakeTransport();
+    const seen: string[] = [];
+    const orch = new SessionOrchestrator({
+      config: CFG,
+      transportFactory: () => t,
+      onEvent: (ev) => seen.push(ev.kind),
+    });
+    await orch.start();
+    t.emit({ kind: 'session-created', sessionId: 'sess_tap' });
+    t.emit({ kind: 'speech-started', itemId: 'item_tap', audioStartMs: 0 });
+    expect(seen).toEqual(['session-created', 'speech-started']);
+    // 模型同样收到（onEvent 是旁路 tap，不取代 model.apply）
+    expect(orch.model.getSegments().length).toBeGreaterThan(0);
+  });
 });

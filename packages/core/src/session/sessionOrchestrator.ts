@@ -1,5 +1,5 @@
 import { TranscriptModel } from './transcriptModel';
-import type { ITranslateTransport, NormalizedKind, SessionConfig } from '../protocol/types';
+import type { ITranslateTransport, NormalizedEvent, NormalizedKind, SessionConfig } from '../protocol/types';
 
 export type OrchestratorState = 'idle' | 'running' | 'paused' | 'reconnecting' | 'error';
 
@@ -14,6 +14,7 @@ export interface OrchestratorOptions {
   config: SessionConfig;
   transportFactory: () => ITranslateTransport;
   onStateChange?: (state: OrchestratorState) => void;
+  onEvent?: (ev: NormalizedEvent) => void; // 旁路 tap：UI 用它喂 AudioSegmenter/UsageMeter/落库
 }
 
 export class SessionOrchestrator {
@@ -34,7 +35,10 @@ export class SessionOrchestrator {
     const t = this.opts.transportFactory();
     this.transport = t;
     for (const k of ALL_KINDS) {
-      this.offs.push(t.on(k, (ev) => this.model.apply(ev)));
+      this.offs.push(t.on(k, (ev) => {
+        this.model.apply(ev);
+        this.opts.onEvent?.(ev);
+      }));
     }
     await t.connect(this.opts.config);
     this.paused = false;
