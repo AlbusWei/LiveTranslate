@@ -141,6 +141,21 @@ describe('per-instance routes', () => {
   });
 });
 
+describe('CORS for local web debug UI', () => {
+  it('reflects localhost dev origin and answers preflight; foreign origins get nothing', async () => {
+    const rig = await startRig(() => { /* 上游不参与 */ });
+    const base = `http://127.0.0.1:${rig.gateway.port}`;
+    const ok = await fetch(`${base}/settings`, { headers: { Origin: 'http://localhost:5173' } });
+    expect(ok.headers.get('access-control-allow-origin')).toBe('http://localhost:5173');
+    const pre = await fetch(`${base}/settings`, { method: 'OPTIONS', headers: { Origin: 'http://localhost:5173' } });
+    expect(pre.status).toBe(204);
+    expect(pre.headers.get('access-control-allow-methods')).toContain('POST');
+    const evil = await fetch(`${base}/settings`, { headers: { Origin: 'https://evil.example.com' } });
+    expect(evil.headers.get('access-control-allow-origin')).toBeNull();
+    await rig.close();
+  });
+});
+
 describe('HTTP body size limit', () => {
   it('rejects >1MB bodies with 413 and leaves settings untouched', async () => {
     const rig = await startRig(() => { /* 上游不参与 */ });

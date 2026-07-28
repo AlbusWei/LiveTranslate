@@ -24,6 +24,17 @@ export type RouteHandler = (req: IncomingMessage, res: ServerResponse, body: str
 
 const MAX_BODY_BYTES = 1_000_000; // 1MB：设置/术语表足够，防恶意大包体
 
+// 网页调试端（vite :5173）跨源访问本地网关：仅对本机开发 origin 放行
+function corsHeaders(req: IncomingMessage): Record<string, string> {
+  const origin = req.headers.origin;
+  if (!origin || !/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) return {};
+  return {
+    'Access-Control-Allow-Origin': origin,
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type',
+  };
+}
+
 export async function createGatewayServer(opts: GatewayOptions): Promise<GatewayHandle> {
   // 实例私有路由表：多 gateway 实例互不干扰（后续任务 T18/T19/T25/T32/T34 在此注册）
   const routes = new Map<string, RouteHandler>();
@@ -43,12 +54,20 @@ export async function createGatewayServer(opts: GatewayOptions): Promise<Gateway
     });
     req.on('end', () => {
       if (tooLarge) return;
+      const cors = corsHeaders(req);
+      if (req.method === 'OPTIONS') {
+        res.writeHead(204, cors);
+        res.end();
+        return;
+      }
       const handler = routes.get(`${req.method} ${(req.url ?? '').split('?')[0]}`);
       if (!handler) {
-        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.writeHead(404, { 'Content-Type': 'application/json', ...cors });
         res.end(JSON.stringify({ error: 'not_found' }));
         return;
       }
+      // 先于 handler 注入 CORS 头：writeHead 时与各路由自身头合并
+      for (const [k, v] of Object.entries(cors)) res.setHeader(k, v);
       void handler(req, res, body);
     });
   });
