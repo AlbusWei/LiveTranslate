@@ -3,7 +3,7 @@ import { createReadStream, existsSync, mkdirSync, readFileSync, writeFileSync } 
 import { dirname, join } from 'node:path';
 import type { ServerResponse } from 'node:http';
 import {
-  OUTPUT_SAMPLE_RATE, SessionLogger, WsTransport, pcm16ToWav, runFilePipeline,
+  OUTPUT_SAMPLE_RATE, SessionLogger, WsTransport, filterOversizedFrames, pcm16ToWav, runFilePipeline,
   type ITranslateTransport, type PipelineFrame, type RawDirection, type ServerEvent,
   type SessionConfig, type WsLike,
 } from '@livetranslate/core';
@@ -69,19 +69,39 @@ export function nodeWsFactory(apiKey: string): (url: string) => WsLike {
   };
 }
 
+export interface ExtractResult {
+  pcm16k: Uint8Array;
+  frames: PipelineFrame[];
+  framesDegraded: boolean; // 抽帧失败降级“仅音轨”（spec 5.2）
+}
+
 export interface ProcessOverrides {
-  extract?: (sourcePath: string, cfg: MediaJobConfig) => Promise<{ pcm16k: Uint8Array; frames: PipelineFrame[] }>;
+  extract?: (sourcePath: string, cfg: MediaJobConfig) => Promise<ExtractResult>;
   transportFactory?: () => ITranslateTransport;
 }
 
-async function defaultExtract(sourcePath: string, cfg: MediaJobConfig): Promise<{ pcm16k: Uint8Array; frames: PipelineFrame[] }> {
-  const pcm16k = await extractPcm16k(sourcePath);
-  let frames: PipelineFrame[] = [];
-  if (cfg.isVideo && cfg.framesEnabled) {
-    const extracted = await extractFrames(sourcePath, { fps: cfg.fps, workDir: join(dirname(sourcePath), 'frames') });
-    frames = extracted.map((f) => ({ timeMs: f.timeMs, jpegBase64: f.jpeg.toString('base64') }));
+async function defaultExtract(sourcePath: string, cfg: MediaJobConfig): Promise<ExtractResult> {
+  let pcm16k: Uint8Array;
+  try {
+    pcm16k = await extractPcm16k(sourcePath);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+      // spec §6.5：ffmpeg 失败明确报错
+      throw new Error('未检测到 ffmpeg：请安装并加入 PATH，或设置 LT_FFMPEG_PATH/LT_FFPROBE_PATH');
+    }
+    throw new Error(`音轨抽取失败（格式可能不受支持，建议先转 mp3/mp4）：${String(err)}`);
   }
-  return { pcm16k, frames };
+  let frames: PipelineFrame[] = [];
+  let framesDegraded = false;
+  if (cfg.isVideo && cfg.framesEnabled) {
+    try {
+      const extracted = await extractFrames(sourcePath, { fps: cfg.fps, workDir: join(dirname(sourcePath), 'frames') });
+      frames = extracted.map((f) => ({ timeMs: f.timeMs, jpegBase64: f.jpeg.toString('base64') }));
+    } catch {
+      framesDegraded = true; // 抽帧失败不阻断作业：降级仅音轨
+    }
+  }
+  return { pcm16k, frames, framesDegraded };
 }
 
 export async function processMediaJob(deps: MediaDeps, jobId: string, overrides: ProcessOverrides = {}): Promise<void> {
@@ -90,7 +110,8 @@ export async function processMediaJob(deps: MediaDeps, jobId: string, overrides:
   const cfg = JSON.parse(job.frame_config_json) as MediaJobConfig;
   deps.storage.updateMediaJob(jobId, { status: 'processing' });
   try {
-    const { pcm16k, frames } = await (overrides.extract ?? defaultExtract)(job.source_path, cfg);
+    const { pcm16k, frames: rawFrames, framesDegraded } = await (overrides.extract ?? defaultExtract)(job.source_path, cfg);
+    const { kept: frames, droppedTimesMs } = filterOversizedFrames(rawFrames); // P11：超大帧跳过
     const totalMs = Math.round(pcm16k.length / 32); // 32 字节/ms @16k16bit mono
     jobProgress.set(jobId, { doneMs: 0, totalMs });
 
@@ -180,7 +201,10 @@ export async function processMediaJob(deps: MediaDeps, jobId: string, overrides:
 
     deps.storage.updateMediaJob(jobId, {
       status: 'done', sessionId: sid,
-      artifactsJson: JSON.stringify({ totalMs, segmentCount: result.segments.length }),
+      artifactsJson: JSON.stringify({
+        totalMs, segmentCount: result.segments.length,
+        droppedFrames: droppedTimesMs.length, framesDegraded,
+      }),
     });
   } catch (err) {
     deps.storage.updateMediaJob(jobId, { status: 'failed', artifactsJson: JSON.stringify({ error: String(err) }) });

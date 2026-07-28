@@ -25,6 +25,7 @@ class MemKeyStore implements KeyStore {
 class ScriptedTransport implements ITranslateTransport {
   readonly kind = 'ws' as const;
   appendedChunks = 0;
+  appendedImages = 0;
   private handlers = new Map<string, Set<(ev: NormalizedEvent) => void>>();
   private rawTaps = new Set<(dir: RawDirection, payload: ServerEvent) => void>();
   constructor(private script: NormalizedEvent[]) {}
@@ -34,7 +35,7 @@ class ScriptedTransport implements ITranslateTransport {
   }
   updateSession(): Promise<void> { return Promise.resolve(); }
   appendAudio(): void { this.appendedChunks++; }
-  appendImage(): void {}
+  appendImage(): void { this.appendedImages++; }
   finish(): Promise<void> {
     for (const ev of this.script) {
       this.rawTaps.forEach((cb) => cb('s2c', { type: `replay.${ev.kind}` } as ServerEvent));
@@ -170,7 +171,7 @@ describe('processMediaJob', () => {
     });
     const t = new ScriptedTransport(SCRIPT);
     await processMediaJob(deps, 'job_p', {
-      extract: () => Promise.resolve({ pcm16k: new Uint8Array(32000), frames: [] }), // 1000ms → 10 块
+      extract: () => Promise.resolve({ pcm16k: new Uint8Array(32000), frames: [], framesDegraded: false }), // 1000ms → 10 块
       transportFactory: () => t,
     });
     expect(t.appendedChunks).toBe(10); // P7/P8：3200 字节/块、全速推完
@@ -178,7 +179,7 @@ describe('processMediaJob', () => {
     const job = deps.storage.getMediaJob('job_p')!;
     expect(job.status).toBe('done');
     expect(job.session_id).toBe('sess_media_1'); // 服务端 session id 与日志/落库同键
-    expect(JSON.parse(job.artifacts_json!)).toEqual({ totalMs: 1000, segmentCount: 1 });
+    expect(JSON.parse(job.artifacts_json!)).toEqual({ totalMs: 1000, segmentCount: 1, droppedFrames: 0, framesDegraded: false });
 
     const session = deps.storage.getSession('sess_media_1')!;
     expect(session.mode).toBe('filedub');
@@ -215,5 +216,31 @@ describe('processMediaJob', () => {
     const job = deps.storage.getMediaJob('job_f')!;
     expect(job.status).toBe('failed');
     expect(JSON.parse(job.artifacts_json!)).toEqual({ error: 'Error: ffmpeg exited with code 1' });
+  });
+
+  it('drops oversized frames (P11) but still appends the valid ones', async () => {
+    deps.storage.insertMediaJob({
+      id: 'job_v', sourcePath: join(dataDir, 'in.mp4'),
+      frameConfigJson: JSON.stringify({
+        isVideo: true, framesEnabled: true, fps: 1, sourceLanguage: null,
+        targetLanguage: 'en', voiceClone: false, voice: 'Tina',
+      }),
+      createdAt: 1,
+    });
+    const t = new ScriptedTransport(SCRIPT);
+    await processMediaJob(deps, 'job_v', {
+      extract: () => Promise.resolve({
+        pcm16k: new Uint8Array(32000),
+        frames: [
+          { timeMs: 150, jpegBase64: 'QUJD' },
+          { timeMs: 450, jpegBase64: 'A'.repeat(259416) }, // 194562 字节 > 190KB → 丢弃
+        ],
+        framesDegraded: false,
+      }),
+      transportFactory: () => t,
+    });
+    expect(t.appendedImages).toBe(1);
+    const job = deps.storage.getMediaJob('job_v')!;
+    expect(JSON.parse(job.artifacts_json!)).toEqual({ totalMs: 1000, segmentCount: 1, droppedFrames: 1, framesDegraded: false });
   });
 });

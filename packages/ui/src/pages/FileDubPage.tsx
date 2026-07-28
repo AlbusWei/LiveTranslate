@@ -262,6 +262,18 @@ export function FileDubPage(): JSX.Element {
       )}
       {phase === 'done' && jobId && (
         <div className="dub-workbench">
+          {(() => {
+            const a = status?.job.artifacts_json
+              ? (JSON.parse(status.job.artifacts_json) as { droppedFrames?: number; framesDegraded?: boolean })
+              : null;
+            if (!a) return null;
+            return (
+              <>
+                {a.framesDegraded && <p className="warn-text">抽帧失败，已降级为“仅音轨”翻译（译文不含视觉增强）</p>}
+                {(a.droppedFrames ?? 0) > 0 && <p className="warn-text">有 {a.droppedFrames} 帧超过 190KB 限制被跳过（P11）</p>}
+              </>
+            );
+          })()}
           <div className="dub-source-media">
             <h3>原始媒体</h3>
             {isVideo
