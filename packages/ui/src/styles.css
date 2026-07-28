@@ -15,3 +15,15 @@ button:disabled { background: #333a4d; color: #6b7280; cursor: not-allowed; }
 button.secondary { background: #262b3a; }
 input, select, textarea { background: #262b3a; color: #e8eaf0; border: 1px solid #333a4d; border-radius: 6px; padding: 8px; }
 .warn-banner { background: #5c1f1f; color: #ffb4b4; padding: 10px 16px; border-radius: 6px; margin-bottom: 12px; }
+.config-panel { display: flex; gap: 16px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+.controls { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; }
+.usage-dashboard { display: flex; gap: 20px; flex-wrap: wrap; padding: 10px 14px; border: 1px solid #333; border-radius: 8px; margin-bottom: 16px; }
+.metric { display: flex; flex-direction: column; }
+.metric-label { font-size: 12px; color: #888; }
+.metric-value { font-size: 18px; font-variant-numeric: tabular-nums; }
+.metric-note { width: 100%; font-size: 12px; color: #666; }
+.segment-source { font-size: 13px; color: #999; }
+.segment-target { font-size: 17px; margin-top: 4px; }
+.segment-meta { margin-top: 6px; display: flex; gap: 10px; align-items: center; }
+.lang-tag { margin-left: 6px; font-size: 12px; color: #6a9; }
+.usage-tag { font-size: 12px; color: #888; }

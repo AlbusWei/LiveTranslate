@@ -46,3 +46,34 @@ export function createGatewayApi(): GatewayApi {
     selfCheck: () => json<SelfCheckDto>('/self-check', { method: 'POST', body: '{}' }),
   };
 }
+
+// ---- 历史落库（T18 写入侧）：路径/字段与网关 historyRoutes 一一对应 ----
+
+export interface CreateSessionBody {
+  id: string;
+  mode: 'solo' | 'filedub' | 'interpreter' | 'meeting';
+  configJson: string;
+  startedAt: number;
+}
+
+export interface SegmentBody {
+  sessionId: string;
+  seq: number;
+  vadStartMs: number | null;
+  vadEndMs: number | null;
+  sourceText: string;
+  targetText: string;
+  sourceLang: string | null;
+  emotion: string | null;
+  usageJson: string | null;
+  wavBase64?: string;
+}
+
+async function postJson(path: string, body: unknown): Promise<void> {
+  const res = await fetch(`${getPlatform().gatewayHttpBase()}${path}`, { method: 'POST', body: JSON.stringify(body) });
+  if (!res.ok) throw new Error(`gateway ${path} -> HTTP ${res.status}`);
+}
+
+export const createSessionRecord = (b: CreateSessionBody): Promise<void> => postJson('/sessions', b);
+export const finishSessionRecord = (b: { id: string; endedAt: number; usageJson: string }): Promise<void> => postJson('/sessions/finish', b);
+export const postSegmentRecord = (b: SegmentBody): Promise<void> => postJson('/segments', b);
