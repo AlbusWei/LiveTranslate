@@ -178,3 +178,24 @@ export const mediaFileUrl = (id: string): string =>
 // T25 导出：浏览器直接下载（Content-Disposition attachment）
 export const exportUrl = (kind: 'srt' | 'txt' | 'dub-wav', sessionId: string): string =>
   `${getPlatform().gatewayHttpBase()}/export/${kind}?sessionId=${encodeURIComponent(sessionId)}`;
+
+// ---- 会议模式（T32/T33）：与网关 meetingRoutes 一一对应 ----
+
+export interface MeetingTurnTextDto {
+  speaker: string;
+  source_text: string;
+  target_text: string;
+  source_lang: string | null;
+}
+
+export const createMeetingRecord = (b: { id: string; roster: string[]; targetLanguage: string; createdAt: number }): Promise<void> =>
+  postJson('/meetings', b);
+
+export const postMeetingTurn = (b: { meetingId: string; speaker: string; sessionId: string; seq: number }): Promise<void> =>
+  postJson('/meeting-turns', b);
+
+export async function fetchMeetingTurns(meetingId: string): Promise<MeetingTurnTextDto[]> {
+  const res = await fetch(`${getPlatform().gatewayHttpBase()}/meeting-turns?meetingId=${encodeURIComponent(meetingId)}`);
+  if (!res.ok) throw new Error(`gateway /meeting-turns -> HTTP ${res.status}`);
+  return ((await res.json()) as { turns: MeetingTurnTextDto[] }).turns;
+}

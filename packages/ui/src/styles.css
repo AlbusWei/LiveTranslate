@@ -62,3 +62,16 @@ input, select, textarea { background: #262b3a; color: #e8eaf0; border: 1px solid
 .subtitle-area { flex: 1; display: flex; flex-direction: column; justify-content: center; padding: 0 8vw; gap: 24px; }
 .subtitle-source { color: #888; font-size: 22px; }
 .subtitle-target { color: #fff; font-size: 44px; line-height: 1.4; }
+.meeting-topbar { display: flex; gap: 16px; align-items: center; }
+.hotseat-banner { padding: 4px 12px; border-radius: 4px; background: #333; }
+.hotseat-speaking { background: #2d5a2d; }
+.hotseat-translating { background: #5a4a2d; }
+.hotseat-playing { background: #2d3a5a; }
+.meeting-seats { display: flex; gap: 12px; margin: 16px 0; flex-wrap: wrap; }
+.seat-btn { font-size: 18px; padding: 12px 24px; }
+.meeting-usage { margin-bottom: 12px; }
+.meeting-turn .turn-meta { display: flex; gap: 8px; align-items: center; color: #aaa; }
+.meeting-turn .turn-time { font-size: 12px; color: #777; }
+.meeting-turn .turn-lang { font-size: 12px; color: #777; }
+.meeting-turn .turn-target { color: #fff; }
+.meeting-live { border: 1px dashed #4c9aff; }
