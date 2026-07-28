@@ -12,3 +12,4 @@ export { LANGUAGES, supportsAudioOutput, type LanguageInfo } from './i18n/langua
 export { pcm16ToWav, wavDurationSeconds, OUTPUT_SAMPLE_RATE } from './audio/wav';
 export { AudioSegmenter } from './session/audioSegmenter';
 export { UsageMeter, type UsageFlat, type UsageSnapshot } from './session/usageMeter';
+export { SessionOrchestrator, type OrchestratorState, type OrchestratorOptions } from './session/sessionOrchestrator';
