@@ -31,6 +31,7 @@ export function SettingsPage(): JSX.Element {
   const [, force] = useReducer((n: number) => n + 1, 0);
   const [keyDraft, setKeyDraft] = useState('');
   const [hostDraft, setHostDraft] = useState('');
+  const [tableDraft, setTableDraft] = useState('');
 
   useEffect(() => {
     const off = store.subscribe(force);
@@ -38,10 +39,11 @@ export function SettingsPage(): JSX.Element {
     return off;
   }, [store]);
 
-  const { settings, maskedKey, hasKey, selfCheck, busy } = store.state;
+  const { settings, maskedKey, hasKey, selfCheck, busy, lastError } = store.state;
   return (
     <div>
       <h2>设置</h2>
+      {lastError && <p className="warn-banner">请求失败：{lastError}</p>}
       <section>
         <h3>连接</h3>
         <label>
@@ -92,10 +94,10 @@ export function SettingsPage(): JSX.Element {
             void store.saveSettings({ hotwordTables: tables });
           }} />
         ))}
-        <button onClick={() => {
-          const name = window.prompt('词表名称？');
-          if (!name) return;
-          void store.saveSettings({ hotwordTables: [...settings.hotwordTables, { name, phrases: [] }] });
+        <input value={tableDraft} placeholder="词表名称" aria-label="词表名称" onChange={(e) => setTableDraft(e.target.value)} />
+        <button disabled={busy || !tableDraft.trim()} onClick={() => {
+          void store.saveSettings({ hotwordTables: [...settings.hotwordTables, { name: tableDraft.trim(), phrases: [] }] });
+          setTableDraft('');
         }}>新建词表</button>
       </section>
     </div>

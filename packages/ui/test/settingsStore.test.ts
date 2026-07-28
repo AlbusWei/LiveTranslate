@@ -51,4 +51,52 @@ describe('SettingsUiStore', () => {
     await s.saveSettings({ hotwordTables: [{ name: '会议', phrases: [{ source: '百炼', target: 'Model Studio' }] }] });
     expect(s.state.settings.hotwordTables[0]!.name).toBe('会议');
   });
+
+  it('failed load/saveSettings resets busy and records lastError without touching settings', async () => {
+    const s = new SettingsUiStore(fakeApi({
+      getSettings: async () => { throw new Error('fetch failed: gateway down'); },
+      postSettings: async () => { throw new Error('HTTP 500'); },
+    }));
+    await s.load();
+    expect(s.state.busy).toBe(false);
+    expect(s.state.lastError).toContain('gateway down');
+    await s.saveSettings({ targetLanguage: 'ja' });
+    expect(s.state.busy).toBe(false);
+    expect(s.state.lastError).toContain('HTTP 500');
+    expect(s.state.settings.targetLanguage).toBe('en'); // 失败不写入
+  });
+
+  it('saveApiKey/runSelfCheck throw: busy resets, lastError set, selfCheck stays null', async () => {
+    const s = new SettingsUiStore(fakeApi({
+      postSettings: async () => { throw new Error('ECONNREFUSED'); },
+      selfCheck: async () => { throw new Error('gateway /self-check -> HTTP 502'); },
+    }));
+    await s.saveApiKey('sk-x');
+    expect(s.state.busy).toBe(false);
+    expect(s.state.lastError).toContain('ECONNREFUSED');
+    await s.runSelfCheck();
+    expect(s.state.busy).toBe(false);
+    expect(s.state.lastError).toContain('502');
+    expect(s.state.selfCheck).toBeNull();
+  });
+
+  it('stale saveSettings response does not overwrite a newer one', async () => {
+    let releaseFirst!: () => void;
+    const firstGate = new Promise<void>((r) => { releaseFirst = r; });
+    let calls = 0;
+    const s = new SettingsUiStore(fakeApi({
+      postSettings: async (body) => {
+        calls += 1;
+        if (calls === 1) await firstGate; // 第一次请求晚于第二次返回
+        return { settings: { ...BASE, ...(body.patch ?? {}) }, maskedKey: '', hasKey: false };
+      },
+    }));
+    const p1 = s.saveSettings({ targetLanguage: 'ja' });
+    const p2 = s.saveSettings({ targetLanguage: 'ko' });
+    await p2;
+    releaseFirst();
+    await p1;
+    expect(s.state.settings.targetLanguage).toBe('ko'); // 过期响应被丢弃
+    expect(s.state.busy).toBe(false);
+  });
 });
