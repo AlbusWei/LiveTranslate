@@ -15,3 +15,5 @@ export { UsageMeter, type UsageFlat, type UsageSnapshot } from './session/usageM
 export { SessionOrchestrator, type OrchestratorState, type OrchestratorOptions } from './session/sessionOrchestrator';
 export { runFilePipeline, type FilePipelineInput, type FilePipelineResult, type PipelineFrame } from './file/filePipeline';
 export { computeDubTimeline, type DubPlacement, type DubSegmentTiming } from './file/dubTimeline';
+export { buildBilingualTxt, buildSrt, formatSrtTime, type SrtCue } from './file/srt';
+export { BYTES_PER_MS_24K, mixdownDubPcm, type MixdownInput } from './file/dubMixdown';
