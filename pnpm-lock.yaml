@@ -10,6 +10,12 @@ importers:
 
   apps/desktop:
     dependencies:
+      '@ffmpeg-installer/ffmpeg':
+        specifier: ^1.1.0
+        version: 1.1.0
+      '@ffprobe-installer/ffprobe':
+        specifier: ^2.1.2
+        version: 2.1.2
       '@livetranslate/core':
         specifier: workspace:*
         version: link:../../packages/core

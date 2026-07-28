@@ -10,11 +10,13 @@ export interface FfmpegPaths {
 
 // 已批准偏差：开发机 PATH 上无 ffmpeg，回退链 = env 覆盖 → 打包二进制（@ffmpeg-installer /
 // @ffprobe-installer，win32-x64 静态构建）→ PATH 名。打包包缺失（如未来精简安装）时仍退回 PATH。
-const require = createRequire(import.meta.url);
+// esbuild CJS 打包（Electron 桌面壳）后 import.meta.url 为空：退回模块自带 require（B9 修复）
+const nodeRequire: NodeRequire =
+  typeof require === 'function' ? require : createRequire(import.meta.url);
 
 function bundledPath(pkg: string): string | null {
   try {
-    return (require(pkg) as { path: string }).path;
+    return (nodeRequire(pkg) as { path: string }).path;
   } catch {
     return null;
   }
