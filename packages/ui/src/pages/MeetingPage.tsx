@@ -189,6 +189,13 @@ export function MeetingPage(): JSX.Element {
     setRunning(true);
   }
 
+  // 手动结束发言：热座转 translating 后麦克风停止推流，服务端 VAD 收不到静音帧将无法闭合当前段
+  // （卡在 translating 无 response）。补送 3.5s 静音尾巴驱动 VAD 闭合（P7：100ms/块）。
+  function endSpeechManually(): void {
+    coordRef.current?.endSpeech();
+    for (let i = 0; i < 35; i++) orchRef.current?.pushAudio(new ArrayBuffer(3200));
+  }
+
   async function grabSeat(name: string): Promise<void> {
     // 抢座前检查：长时间无人发言按“暂停”处理（spec §5.4 暂停超 10 分钟轮换）
     const reason = shouldRotate({
@@ -319,7 +326,7 @@ export function MeetingPage(): JSX.Element {
             {name} 发言
           </button>
         ))}
-        {hotSeat === 'speaking' && <button onClick={() => coordRef.current?.endSpeech()}>结束发言</button>}
+        {hotSeat === 'speaking' && <button onClick={endSpeechManually}>结束发言</button>}
         {hotSeat === 'playing' && (
           <button onClick={() => {
             playerRef.current?.flush(); // 丢弃剩余音频
