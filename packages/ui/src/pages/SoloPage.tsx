@@ -1,3 +1,70 @@
+import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import { TranscriptModel, WsTransport, type SessionConfig } from '@livetranslate/core';
+import { getPlatform } from '../platform';
+import { TranscriptView } from '../components/TranscriptView';
+import { startMicCapture, type MicCaptureHandle } from '../audio/micCapture';
+
+function browserWsFactory(url: string) {
+  const ws = new WebSocket(url);
+  const like = {
+    send: (d: string) => ws.send(d),
+    close: () => ws.close(),
+    onopen: null as (() => void) | null,
+    onmessage: null as ((data: string) => void) | null,
+    onclose: null as (() => void) | null,
+    onerror: null as ((err: unknown) => void) | null,
+  };
+  ws.onopen = () => like.onopen?.();
+  ws.onmessage = (e) => like.onmessage?.(String(e.data));
+  ws.onclose = () => like.onclose?.();
+  ws.onerror = (e) => like.onerror?.(e);
+  return like;
+}
+
 export function SoloPage(): JSX.Element {
-  return <h2>单人测试</h2>;
+  const model = useMemo(() => new TranscriptModel(), []);
+  const [, force] = useReducer((n: number) => n + 1, 0);
+  const [running, setRunning] = useState(false);
+  const transportRef = useRef<WsTransport | null>(null);
+  const micRef = useRef<MicCaptureHandle | null>(null);
+
+  useEffect(() => model.onChange(force), [model]);
+
+  async function start(): Promise<void> {
+    const cfg: SessionConfig = {
+      modalities: ['text'],
+      voice: 'Tina',
+      sample_rate: 16000,
+      input_audio_format: 'pcm',
+      input_audio_transcription: { model: 'qwen3-asr-flash-realtime' },
+      translation: { language: 'en' },
+    };
+    const t = new WsTransport({ url: getPlatform().gatewayWsUrl(), wsFactory: browserWsFactory });
+    (['session-created', 'session-updated', 'session-finished', 'speech-started', 'speech-stopped',
+      'asr-delta', 'asr-completed', 'response-created', 'translation-delta', 'translation-done',
+      'audio-delta', 'response-done', 'server-error'] as const)
+      .forEach((k) => t.on(k, (ev) => model.apply(ev)));
+    await t.connect(cfg);
+    transportRef.current = t;
+    micRef.current = await startMicCapture({ onChunk: (b) => t.appendAudio(b) });
+    setRunning(true);
+  }
+
+  async function stop(): Promise<void> {
+    micRef.current?.stop();
+    micRef.current = null;
+    await transportRef.current?.finish();
+    transportRef.current = null;
+    setRunning(false);
+  }
+
+  return (
+    <div>
+      <h2>单人测试（文本流）</h2>
+      {!running
+        ? <button onClick={() => void start()}>开始</button>
+        : <button onClick={() => void stop()}>结束</button>}
+      <TranscriptView segments={model.getSegments()} />
+    </div>
+  );
 }

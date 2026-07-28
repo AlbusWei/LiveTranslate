@@ -6,3 +6,6 @@ export { bytesToBase64, base64ToBytes } from './audio/base64';
 export { WsTransport, type WsLike, type WsTransportOptions } from './protocol/wsTransport';
 export { TranscriptModel, type TranscriptSegment, type SegmentStatus } from './session/transcriptModel';
 export { SessionLogger, fnv1a, type SessionLoggerOptions } from './session/sessionLogger';
+export { downsampleTo16kPcm16 } from './audio/resample';
+export { PcmChunker } from './audio/pcmChunker';
+export { LANGUAGES, supportsAudioOutput, type LanguageInfo } from './i18n/languages';
