@@ -56,7 +56,8 @@ export class TranscriptModel {
         const seg = this.byItem(ev.itemId) ?? this.open();
         if (!seg) break;
         seg.itemId = seg.itemId ?? ev.itemId;
-        seg.sourceText = ev.text; // P4：整段覆盖，禁止拼接
+        // P4：整段覆盖，禁止拼接；但空 text 不覆盖已确认内容（防 stash-only 增量擦除历史确认）
+        if (ev.text) seg.sourceText = ev.text;
         seg.sourceStash = ev.stash;
         seg.sourceLang = ev.language;
         seg.emotion = ev.emotion;
@@ -82,7 +83,8 @@ export class TranscriptModel {
         const seg = this.byResponse(ev.responseId);
         if (!seg) break;
         if (seg.firstDeltaAt === null) seg.firstDeltaAt = this.now();
-        seg.targetText = ev.text; // P4：整段覆盖
+        // P4：整段覆盖；但空 text 不覆盖已确认内容（防 stash-only 增量擦除历史确认）
+        if (ev.text) seg.targetText = ev.text;
         seg.targetStash = ev.stash;
         break;
       }

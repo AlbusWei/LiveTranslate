@@ -151,12 +151,12 @@ export async function processMediaJob(deps: MediaDeps, jobId: string, overrides:
       logger.record(dir, payload);
     });
 
-    // P10：复刻时 voice 必须为 "default"；spec 5.2：配音用 once 复刻
+    // P10：复刻时 voice 必须为 "default"；文件配音用 always 频率确保每段都用复刻音色（once 会导致首段回落到 default/Tina）
     const sessionConfig: SessionConfig = {
       modalities: ['text', 'audio'],
       voice: cfg.voiceClone ? 'default' : cfg.voice,
       enable_voice_clone: cfg.voiceClone,
-      ...(cfg.voiceClone ? { voice_clone_options: { frequency: 'once' as const } } : {}),
+      ...(cfg.voiceClone ? { voice_clone_options: { frequency: 'always' as const } } : {}),
       sample_rate: 16000,
       input_audio_format: 'pcm',
       input_audio_transcription: {

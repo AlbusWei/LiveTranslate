@@ -1,4 +1,5 @@
 export type HotSeatState = 'idle' | 'speaking' | 'translating' | 'playing';
+export const TRANSLATING_TIMEOUT_MS = 30_000; // 翻译超时兑底：30s 无 audio-delta 则自动释放热座
 
 export const SILENCE_END_MS = 3000; // spec §5.4：VAD 静音 ≥3s 自动结束发言
 
@@ -11,6 +12,7 @@ export class MeetingCoordinator {
   state: HotSeatState = 'idle';
   speaker: string | null = null;
   private cancelSilence: (() => void) | null = null;
+  private cancelTranslatingTimeout: (() => void) | null = null;
 
   constructor(private deps: CoordinatorDeps) {}
 
@@ -22,6 +24,11 @@ export class MeetingCoordinator {
   private clearSilenceTimer(): void {
     this.cancelSilence?.();
     this.cancelSilence = null;
+  }
+
+  private clearTranslatingTimeout(): void {
+    this.cancelTranslatingTimeout?.();
+    this.cancelTranslatingTimeout = null;
   }
 
   // 热座抢占：仅 idle 可上座；translating/playing 中按下无效（spec §5.4）
@@ -48,10 +55,29 @@ export class MeetingCoordinator {
     if (this.state !== 'speaking') return;
     this.clearSilenceTimer();
     this.setState('translating');
+    // 兑底：翻译阶段超时无响应时自动释放热座，防死锁
+    this.cancelTranslatingTimeout = this.deps.schedule(() => this.forceRelease(), TRANSLATING_TIMEOUT_MS);
+  }
+
+  // response.done 到达但未进入 playing（无 audio-delta）：直接释放热座
+  noteResponseDone(): void {
+    if (this.state !== 'translating') return;
+    this.clearTranslatingTimeout();
+    this.speaker = null;
+    this.setState('idle');
+  }
+
+  // 强制释放热座（翻译超时兑底）
+  private forceRelease(): void {
+    this.clearSilenceTimer();
+    this.clearTranslatingTimeout();
+    this.speaker = null;
+    this.setState('idle');
   }
 
   notePlaybackStarted(): void {
     if (this.state !== 'translating') return;
+    this.clearTranslatingTimeout();
     this.setState('playing');
   }
 

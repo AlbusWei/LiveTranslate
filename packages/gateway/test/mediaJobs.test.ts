@@ -184,10 +184,10 @@ describe('processMediaJob', () => {
     const session = deps.storage.getSession('sess_media_1')!;
     expect(session.mode).toBe('filedub');
     expect((JSON.parse(session.usage_json!) as { total_tokens: number }).total_tokens).toBe(169);
-    // P10：once 复刻时 voice 必须为 "default"
+    // P10：复刻时 voice 必须为 "default"；文件配音用 always 频率确保每段都用复刻音色
     const cfg = JSON.parse(session.config_json) as SessionConfig;
     expect(cfg.voice).toBe('default');
-    expect(cfg.voice_clone_options).toEqual({ frequency: 'once' });
+    expect(cfg.voice_clone_options).toEqual({ frequency: 'always' });
 
     const segs = deps.storage.listSegments('sess_media_1');
     expect(segs.length).toBe(1);

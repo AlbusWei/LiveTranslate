@@ -18,7 +18,7 @@ export { computeDubTimeline, type DubPlacement, type DubSegmentTiming } from './
 export { buildBilingualTxt, buildSrt, formatSrtTime, type SrtCue } from './file/srt';
 export { BYTES_PER_MS_24K, mixdownDubPcm, type MixdownInput } from './file/dubMixdown';
 export { MAX_FRAME_BYTES, MAX_FRAME_FPS, filterOversizedFrames, rawBytesOfBase64 } from './file/imageRules';
-export { MeetingCoordinator, SILENCE_END_MS, type CoordinatorDeps, type HotSeatState } from './meeting/meetingCoordinator';
+export { MeetingCoordinator, SILENCE_END_MS, TRANSLATING_TIMEOUT_MS, type CoordinatorDeps, type HotSeatState } from './meeting/meetingCoordinator';
 export { ROTATE_INPUT_TOKENS, ROTATE_PAUSE_MS, shouldRotate, type RotationInput, type RotationReason } from './session/rotationPolicy';
 export { buildMeetingMarkdown, buildMeetingTxt, type MeetingMeta, type MeetingTurnExport } from './meeting/meetingExport';
 export {

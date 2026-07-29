@@ -284,6 +284,16 @@ export function LivePage(): JSX.Element {
   const fmtTime = `${String(Math.floor(sessionSeconds / 60)).padStart(2, '0')}:${String(sessionSeconds % 60).padStart(2, '0')}`;
 
   // Headphone mode: show wizard or subtitle overlay when running
+  if (starting) {
+    return (
+      <div className="connecting-overlay">
+        <div className="connecting-spinner" />
+        <div className="connecting-text">正在建立连接…</div>
+        <div className="connecting-sub">正在与 LiveTranslate 服务建立 WebSocket 会话，请稍候</div>
+      </div>
+    );
+  }
+
   if (tab === 'headphone' && showWizard && !choice) {
     return <ChannelWizard onComplete={(c) => { setChoice(c); setShowWizard(false); }} />;
   }

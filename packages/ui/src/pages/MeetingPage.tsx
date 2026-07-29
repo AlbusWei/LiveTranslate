@@ -5,7 +5,7 @@ import {
   type HotSeatState, type NormalizedEvent, type OrchestratorState, type SessionConfig, type TranscriptSegment,
   type UsageSnapshot,
 } from '@livetranslate/core';
-import { Plus, Trash2, Play, Mic } from 'lucide-react';
+import { Plus, Trash2, Play, Mic, Loader2 } from 'lucide-react';
 import { getPlatform } from '../platform';
 import { browserWsFactory } from '../wsFactory';
 import {
@@ -54,6 +54,8 @@ export function MeetingPage(): JSX.Element {
   const idleSinceRef = useRef(Date.now());
   const pollRef = useRef<number | null>(null);
   const pcmByResponseRef = useRef(new Map<string, Uint8Array>());
+  const [starting, setStarting] = useState(false);
+  const playbackStartedRef = useRef(false);
   const segmenterRef = useRef(
     new AudioSegmenter((responseId, pcm24k) => pcmByResponseRef.current.set(responseId, pcm24k)),
   );
@@ -75,12 +77,20 @@ export function MeetingPage(): JSX.Element {
 
   function waitPlaybackEnd(): void {
     if (pollRef.current !== null) return;
+    playbackStartedRef.current = false;
     pollRef.current = window.setInterval(() => {
       const player = playerRef.current;
-      if (!player || player.bufferedSeconds() > 0) return;
-      window.clearInterval(pollRef.current!);
-      pollRef.current = null;
-      coordRef.current?.notePlaybackFinished();
+      if (!player) return;
+      const buffered = player.bufferedSeconds();
+      // 首次检测到有缓冲音频时标记播放已开始
+      if (buffered > 0) playbackStartedRef.current = true;
+      // 只有播放已启动且缓冲耗尽时才认为播放结束，防首次轮询误判
+      if (playbackStartedRef.current && buffered <= 0) {
+        window.clearInterval(pollRef.current!);
+        pollRef.current = null;
+        playbackStartedRef.current = false;
+        coordRef.current?.notePlaybackFinished();
+      }
     }, 200);
   }
 
@@ -120,6 +130,12 @@ export function MeetingPage(): JSX.Element {
     }
     if (ev.kind === 'server-error') void rotateSession('error');
     if (ev.kind === 'response-done') {
+      // 翻译完成：若未进入 playing（无 audio-delta），直接释放热座并清除轮询
+      // 若已在 playing（音频仍在播放），不清除轮询——让 waitPlaybackEnd 自然检测播放结束
+      if (coord.state === 'translating') {
+        coord.noteResponseDone();
+        if (pollRef.current !== null) { window.clearInterval(pollRef.current); pollRef.current = null; }
+      }
       if (ev.usage) setUsage(meterRef.current.applyUsage(ev.usage));
       persistTurn(ev.responseId);
       const reason = shouldRotate({ sessionInputTokens: meterRef.current.snapshot().sessionTotal.input_tokens, hadError: false, pausedSinceMs: null, now: Date.now() });
@@ -150,32 +166,37 @@ export function MeetingPage(): JSX.Element {
   }
 
   async function startMeeting(): Promise<void> {
-    const id = `meet_${Date.now()}`;
-    const createdAt = Date.now();
-    await createMeetingRecord({ id, roster, targetLanguage, createdAt });
-    meetingIdRef.current = id;
-    rosterRef.current = roster;
-    createdAtRef.current = createdAt;
-    setLastMeetingId(id);
-    coordRef.current = new MeetingCoordinator({
-      schedule: (cb, delayMs) => { const t = window.setTimeout(cb, delayMs); return () => window.clearTimeout(t); },
-      onStateChange: (s, who) => { setHotSeat(s); setSpeaker(who); if (s === 'idle') idleSinceRef.current = Date.now(); },
-    });
-    const ctx = new AudioContext({ sampleRate: OUTPUT_SAMPLE_RATE });
-    ctxRef.current = ctx;
-    playerRef.current = new StreamPlayer(ctx);
-    meterRef.current = new UsageMeter();
-    pcmByResponseRef.current = new Map();
-    segmenterRef.current.reset();
-    setTimeline([]);
-    setUsage(null);
-    setRotationNotice(null);
-    await startOrchestrator();
-    micRef.current = await startMicCapture({
-      echoCancellation: true,
-      onChunk: (b) => { if (coordRef.current?.state === 'speaking') orchRef.current?.pushAudio(b); },
-    });
-    setRunning(true);
+    setStarting(true);
+    try {
+      const id = `meet_${Date.now()}`;
+      const createdAt = Date.now();
+      await createMeetingRecord({ id, roster, targetLanguage, createdAt });
+      meetingIdRef.current = id;
+      rosterRef.current = roster;
+      createdAtRef.current = createdAt;
+      setLastMeetingId(id);
+      coordRef.current = new MeetingCoordinator({
+        schedule: (cb, delayMs) => { const t = window.setTimeout(cb, delayMs); return () => window.clearTimeout(t); },
+        onStateChange: (s, who) => { setHotSeat(s); setSpeaker(who); if (s === 'idle') idleSinceRef.current = Date.now(); },
+      });
+      const ctx = new AudioContext({ sampleRate: OUTPUT_SAMPLE_RATE });
+      ctxRef.current = ctx;
+      playerRef.current = new StreamPlayer(ctx);
+      meterRef.current = new UsageMeter();
+      pcmByResponseRef.current = new Map();
+      segmenterRef.current.reset();
+      setTimeline([]);
+      setUsage(null);
+      setRotationNotice(null);
+      await startOrchestrator();
+      micRef.current = await startMicCapture({
+        echoCancellation: true,
+        onChunk: (b) => { if (coordRef.current?.state === 'speaking') orchRef.current?.pushAudio(b); },
+      });
+      setRunning(true);
+    } finally {
+      setStarting(false);
+    }
   }
 
   function endSpeechManually(): void {
@@ -226,6 +247,17 @@ export function MeetingPage(): JSX.Element {
 
   const fmtTime = (ms: number): string => new Date(ms).toLocaleTimeString('zh-CN', { hour12: false });
   const avatarColor = (name: string): string => AVATAR_COLORS[rosterRef.current.indexOf(name) % AVATAR_COLORS.length] ?? '#888';
+
+  // === Connecting overlay ===
+  if (starting) {
+    return (
+      <div className="connecting-overlay">
+        <div className="connecting-spinner" />
+        <div className="connecting-text">正在启动会议…</div>
+        <div className="connecting-sub">正在建立 WebSocket 会话并初始化麦克风</div>
+      </div>
+    );
+  }
 
   // === Setup view ===
   if (!running) {
@@ -358,6 +390,9 @@ export function MeetingPage(): JSX.Element {
           </button>
         ))}
         {hotSeat === 'speaking' && <button className="btn btn-secondary btn-sm" onClick={endSpeechManually}>结束发言</button>}
+        {hotSeat === 'translating' && (
+          <span className="translating-badge"><Loader2 size={14} className="spin" /> 正在翻译…</span>
+        )}
         {hotSeat === 'playing' && (
           <button className="btn btn-ghost btn-sm" onClick={() => { playerRef.current?.flush(); coordRef.current?.skipPlayback(); }}>跳过播放</button>
         )}

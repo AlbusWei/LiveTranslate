@@ -14,6 +14,26 @@ import { DubPlaybackController } from '../state/dubPlayback';
 
 type Phase = 'pick' | 'uploading' | 'processing' | 'done' | 'failed';
 
+// Qwen3.5-LiveTranslate-Flash-Realtime 支持的音色（精选常用）
+const VOICES: Array<{ value: string; label: string; desc: string }> = [
+  { value: 'Tina', label: 'Tina', desc: '温暖女声（默认）' },
+  { value: 'Cindy', label: 'Cindy', desc: '台湾口音甜美女声' },
+  { value: 'Serena', label: 'Serena', desc: '温柔女声' },
+  { value: 'Ethan', label: 'Ethan', desc: '北方口音阳光男声' },
+  { value: 'Harvey', label: 'Harvey', desc: '低沉醇厚男声' },
+  { value: 'Evan', label: 'Evan', desc: '年轻温暖男声' },
+  { value: 'Jennifer', label: 'Jennifer', desc: '美式电影级女声' },
+  { value: 'Aiden', label: 'Aiden', desc: '美式随和男声' },
+  { value: 'Mione', label: 'Mione', desc: '英式知性女声' },
+  { value: 'Ryan', label: 'Ryan', desc: '高能量戏剧男声' },
+  { value: 'Katerina', label: 'Katerina', desc: '成熟沉稳女声' },
+  { value: 'Sohee', label: 'Sohee', desc: '韩式温暖女声' },
+  { value: 'Lenn', label: 'Lenn', desc: '德式理性男声' },
+  { value: 'Emilien', label: 'Emilien', desc: '法式浪漫男声' },
+  { value: 'Dolce', label: 'Dolce', desc: '意式慵懒男声' },
+  { value: 'Andre', label: 'Andre', desc: '磁性稳重男声' },
+];
+
 const fmtMs = (ms: number | null): string => {
   if (ms === null) return '--:--';
   const s = Math.floor(ms / 1000);
@@ -208,14 +228,17 @@ export function FileDubPage(): JSX.Element {
                   </select>
                 </div>
                 <div>
-                  <label className="label">预置音色</label>
+                  <label className="label">预置音色{voiceClone && '（复刻模式下不可用）'}</label>
                   <select className="select" value={voice} onChange={(e) => setVoice(e.target.value)} disabled={voiceClone}>
-                    <option value="Tina">Tina</option><option value="Cherry">Cherry</option><option value="Ethan">Ethan</option>
+                    {VOICES.map((v) => <option key={v.value} value={v.value}>{v.label} — {v.desc}</option>)}
                   </select>
                 </div>
               </div>
               <div className="config-row">
-                <span className="config-row-label">音色复刻（取文件开头人声）</span>
+                <div>
+                  <span className="config-row-label">音色复刻（逐段从原声采样）</span>
+                  <p style={{ fontSize: '11px', color: 'var(--color-text-tertiary)', marginTop: '2px' }}>开启后，每段译文都将复刻原音频中对应说话人的音色，预置音色将被忽略</p>
+                </div>
                 <button className={`switch${voiceClone ? ' on' : ''}`} role="switch" aria-checked={voiceClone} aria-label="音色复刻" onClick={() => setVoiceClone(!voiceClone)} />
               </div>
               {isVideo && (

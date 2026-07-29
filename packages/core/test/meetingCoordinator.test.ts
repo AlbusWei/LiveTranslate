@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MeetingCoordinator, SILENCE_END_MS } from '../src/meeting/meetingCoordinator';
+import { MeetingCoordinator, SILENCE_END_MS, TRANSLATING_TIMEOUT_MS } from '../src/meeting/meetingCoordinator';
 
 // 可推进的假调度器：与 DubPlaybackDeps.schedule 同约定（返回取消函数）
 class FakeScheduler {
@@ -93,5 +93,44 @@ describe('MeetingCoordinator (spec 5.4 热座)', () => {
     coord.requestSpeak('Alice');
     coord.notePlaybackFinished(); // speaking 中无效
     expect(coord.state).toBe('speaking');
+  });
+
+  it('noteResponseDone releases seat when translating without audio', () => {
+    const { coord, transitions } = setup();
+    coord.requestSpeak('Alice');
+    coord.endSpeech();
+    expect(coord.state).toBe('translating');
+    coord.noteResponseDone(); // 无 audio-delta，response.done 直达
+    expect(coord.state).toBe('idle');
+    expect(coord.speaker).toBeNull();
+    expect(transitions).toEqual(['speaking:Alice', 'translating:Alice', 'idle:-']);
+  });
+
+  it('noteResponseDone is a no-op when not translating', () => {
+    const { coord } = setup();
+    coord.requestSpeak('Alice');
+    coord.noteResponseDone(); // speaking 中无效
+    expect(coord.state).toBe('speaking');
+  });
+
+  it('translating timeout fires after TRANSLATING_TIMEOUT_MS and releases seat', () => {
+    const { clock, coord } = setup();
+    coord.requestSpeak('Alice');
+    coord.endSpeech();
+    expect(coord.state).toBe('translating');
+    clock.advance(TRANSLATING_TIMEOUT_MS - 1);
+    expect(coord.state).toBe('translating'); // 未超时
+    clock.advance(1);
+    expect(coord.state).toBe('idle'); // 超时强制释放
+    expect(coord.speaker).toBeNull();
+  });
+
+  it('translating timeout is cleared when playback starts', () => {
+    const { clock, coord } = setup();
+    coord.requestSpeak('Alice');
+    coord.endSpeech();
+    coord.notePlaybackStarted(); // 进入 playing，应清除翻译超时
+    clock.advance(TRANSLATING_TIMEOUT_MS + 1000); // 远超超时时间
+    expect(coord.state).toBe('playing'); // 未被超时释放
   });
 });
