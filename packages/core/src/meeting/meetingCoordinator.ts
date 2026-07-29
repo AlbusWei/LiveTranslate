@@ -1,5 +1,5 @@
 export type HotSeatState = 'idle' | 'speaking' | 'translating' | 'playing';
-export const TRANSLATING_TIMEOUT_MS = 30_000; // 翻译超时兑底：30s 无 audio-delta 则自动释放热座
+export const TRANSLATING_TIMEOUT_MS = 15_000; // 翻译超时兑底：15s 无 audio-delta 则自动释放热座
 
 export const SILENCE_END_MS = 3000; // spec §5.4：VAD 静音 ≥3s 自动结束发言
 
@@ -60,8 +60,10 @@ export class MeetingCoordinator {
   }
 
   // response.done 到达但未进入 playing（无 audio-delta）：直接释放热座
+  // 同时处理 speaking 状态下的竞态：服务端 VAD 可能在用户还在 speaking 时就创建了 response
   noteResponseDone(): void {
-    if (this.state !== 'translating') return;
+    if (this.state !== 'translating' && this.state !== 'speaking') return;
+    this.clearSilenceTimer();
     this.clearTranslatingTimeout();
     this.speaker = null;
     this.setState('idle');
@@ -76,20 +78,30 @@ export class MeetingCoordinator {
   }
 
   notePlaybackStarted(): void {
-    if (this.state !== 'translating') return;
+    // 竞态处理：服务端 VAD 可能在 speaking 状态下就创建了 response 并开始推送 audio-delta
+    if (this.state !== 'translating' && this.state !== 'speaking') return;
+    this.clearSilenceTimer();
     this.clearTranslatingTimeout();
     this.setState('playing');
   }
 
   notePlaybackFinished(): void {
-    if (this.state !== 'playing') return;
+    // 竞态处理：音频可能在 speaking 状态下就已播完（极短音频）
+    if (this.state !== 'playing' && this.state !== 'speaking') return;
     this.speaker = null;
     this.setState('idle');
+  }
+
+  // 强制结束翻译（用户点击"强制结束"按钮）：立即释放热座
+  skipTranslating(): void {
+    if (this.state !== 'translating') return;
+    this.forceRelease();
   }
 
   // spec §5.4：跳过播放按钮，立即释放热座
   skipPlayback(): void {
     if (this.state !== 'playing') return;
+    this.clearTranslatingTimeout();
     this.speaker = null;
     this.setState('idle');
   }

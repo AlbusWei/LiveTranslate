@@ -72,6 +72,8 @@ export function MeetingPage(): JSX.Element {
       input_audio_format: 'pcm',
       input_audio_transcription: { model: 'qwen3-asr-flash-realtime' },
       translation: { language: targetLanguage },
+      // 对齐 spec §5.4：3s 静音才触发 response，避免短暂停顿就提前结束发言
+      turn_detection: { type: 'server_vad', threshold: 0.2, silence_duration_ms: 3000, create_response: true, interrupt_response: true },
     };
   }
 
@@ -130,14 +132,15 @@ export function MeetingPage(): JSX.Element {
     }
     if (ev.kind === 'server-error') void rotateSession('error');
     if (ev.kind === 'response-done') {
-      // 翻译完成：若未进入 playing（无 audio-delta），直接释放热座并清除轮询
+      // 先持久化轮次（noteResponseDone 会清空 speaker，必须在状态变更前调用）
+      if (ev.usage) setUsage(meterRef.current.applyUsage(ev.usage));
+      persistTurn(ev.responseId);
+      // 若在 translating 或 speaking（无 audio-delta 或竞态），直接释放热座并清除轮询
       // 若已在 playing（音频仍在播放），不清除轮询——让 waitPlaybackEnd 自然检测播放结束
-      if (coord.state === 'translating') {
+      if (coord.state === 'translating' || coord.state === 'speaking') {
         coord.noteResponseDone();
         if (pollRef.current !== null) { window.clearInterval(pollRef.current); pollRef.current = null; }
       }
-      if (ev.usage) setUsage(meterRef.current.applyUsage(ev.usage));
-      persistTurn(ev.responseId);
       const reason = shouldRotate({ sessionInputTokens: meterRef.current.snapshot().sessionTotal.input_tokens, hadError: false, pausedSinceMs: null, now: Date.now() });
       if (reason) void rotateSession(reason);
     }
@@ -200,7 +203,9 @@ export function MeetingPage(): JSX.Element {
   }
 
   function endSpeechManually(): void {
-    coordRef.current?.endSpeech();
+    const coord = coordRef.current;
+    if (!coord || coord.state !== 'speaking') return; // 竞态：服务端可能已自动创建 response
+    coord.endSpeech();
     for (let i = 0; i < 35; i++) orchRef.current?.pushAudio(new ArrayBuffer(3200));
   }
 
@@ -391,7 +396,10 @@ export function MeetingPage(): JSX.Element {
         ))}
         {hotSeat === 'speaking' && <button className="btn btn-secondary btn-sm" onClick={endSpeechManually}>结束发言</button>}
         {hotSeat === 'translating' && (
-          <span className="translating-badge"><Loader2 size={14} className="spin" /> 正在翻译…</span>
+          <>
+            <span className="translating-badge"><Loader2 size={14} className="spin" /> 正在翻译…</span>
+            <button className="btn btn-ghost btn-sm" onClick={() => coordRef.current?.skipTranslating()}>强制结束</button>
+          </>
         )}
         {hotSeat === 'playing' && (
           <button className="btn btn-ghost btn-sm" onClick={() => { playerRef.current?.flush(); coordRef.current?.skipPlayback(); }}>跳过播放</button>

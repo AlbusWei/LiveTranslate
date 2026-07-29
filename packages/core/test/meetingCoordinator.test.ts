@@ -85,14 +85,11 @@ describe('MeetingCoordinator (spec 5.4 热座)', () => {
     expect(coord.speaker).toBeNull();
   });
 
-  it('ignores playback events outside their source states', () => {
+  it('ignores playback events from idle state', () => {
     const { coord } = setup();
     coord.notePlaybackStarted(); // idle 中无效
     coord.notePlaybackFinished();
     expect(coord.state).toBe('idle');
-    coord.requestSpeak('Alice');
-    coord.notePlaybackFinished(); // speaking 中无效
-    expect(coord.state).toBe('speaking');
   });
 
   it('noteResponseDone releases seat when translating without audio', () => {
@@ -106,11 +103,10 @@ describe('MeetingCoordinator (spec 5.4 热座)', () => {
     expect(transitions).toEqual(['speaking:Alice', 'translating:Alice', 'idle:-']);
   });
 
-  it('noteResponseDone is a no-op when not translating', () => {
+  it('noteResponseDone is a no-op from idle state', () => {
     const { coord } = setup();
-    coord.requestSpeak('Alice');
-    coord.noteResponseDone(); // speaking 中无效
-    expect(coord.state).toBe('speaking');
+    coord.noteResponseDone(); // idle 中无效
+    expect(coord.state).toBe('idle');
   });
 
   it('translating timeout fires after TRANSLATING_TIMEOUT_MS and releases seat', () => {
@@ -132,5 +128,42 @@ describe('MeetingCoordinator (spec 5.4 热座)', () => {
     coord.notePlaybackStarted(); // 进入 playing，应清除翻译超时
     clock.advance(TRANSLATING_TIMEOUT_MS + 1000); // 远超超时时间
     expect(coord.state).toBe('playing'); // 未被超时释放
+  });
+
+  // === 竞态修复：服务端 VAD 在 speaking 状态下就创建了 response ===
+
+  it('notePlaybackStarted transitions from speaking to playing (race condition)', () => {
+    const { coord, transitions } = setup();
+    coord.requestSpeak('Alice');
+    coord.notePlaybackStarted(); // speaking → playing（服务端提前创建 response）
+    expect(coord.state).toBe('playing');
+    expect(transitions).toEqual(['speaking:Alice', 'playing:Alice']);
+  });
+
+  it('noteResponseDone releases seat from speaking state (race condition)', () => {
+    const { coord } = setup();
+    coord.requestSpeak('Alice');
+    coord.noteResponseDone(); // speaking → idle（无 audio-delta 的 response.done）
+    expect(coord.state).toBe('idle');
+    expect(coord.speaker).toBeNull();
+  });
+
+  it('notePlaybackFinished releases seat from speaking state (very short audio)', () => {
+    const { coord } = setup();
+    coord.requestSpeak('Alice');
+    coord.notePlaybackStarted(); // speaking → playing
+    coord.notePlaybackFinished(); // playing → idle
+    expect(coord.state).toBe('idle');
+    expect(coord.speaker).toBeNull();
+  });
+
+  it('skipTranslating force-releases the hot seat', () => {
+    const { coord } = setup();
+    coord.requestSpeak('Alice');
+    coord.endSpeech();
+    expect(coord.state).toBe('translating');
+    coord.skipTranslating();
+    expect(coord.state).toBe('idle');
+    expect(coord.speaker).toBeNull();
   });
 });

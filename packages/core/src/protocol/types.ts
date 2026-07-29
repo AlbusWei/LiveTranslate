@@ -17,6 +17,13 @@ export interface SessionConfig {
     language: string;
     corpus?: { phrases: Array<{ source: string; target: string }> };
   };
+  turn_detection?: {
+    type: 'server_vad';
+    threshold?: number;
+    silence_duration_ms?: number;
+    create_response?: boolean;
+    interrupt_response?: boolean;
+  };
 }
 
 // response.done.usage 真实结构（session 累积值，spec §2.4 / P6）
