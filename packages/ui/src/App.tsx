@@ -1,42 +1,46 @@
-import { HashRouter, NavLink, Route, Routes } from 'react-router-dom';
-import { SoloPage } from './pages/SoloPage';
+import { useEffect, useState } from 'react';
+import { HashRouter, Navigate, Route, Routes } from 'react-router-dom';
+import { AppShell } from './components/AppShell';
+import { LivePage } from './pages/LivePage';
 import { FileDubPage } from './pages/FileDubPage';
-import { InterpreterPage } from './pages/InterpreterPage';
 import { MeetingPage } from './pages/MeetingPage';
 import { HistoryPage } from './pages/HistoryPage';
 import { SettingsPage } from './pages/SettingsPage';
-
-const NAV = [
-  { to: '/', label: '单人测试' },
-  { to: '/filedub', label: '翻译机·配音' },
-  { to: '/interpreter', label: '实时翻译机' },
-  { to: '/meeting', label: '会议' },
-  { to: '/history', label: '历史' },
-  { to: '/settings', label: '设置' },
-];
+import { OnboardingPage } from './pages/OnboardingPage';
+import { createGatewayApi } from './api';
 
 export function App(): JSX.Element {
+  const [hasKey, setHasKey] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    void createGatewayApi().getSettings().then((r) => setHasKey(r.hasKey)).catch(() => setHasKey(false));
+  }, []);
+
+  if (hasKey === null) {
+    return <div style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#9C9A94' }}>加载中…</div>;
+  }
+
   return (
     <HashRouter>
-      <div className="app-shell">
-        <nav className="side-nav">
-          {NAV.map((n) => (
-            <NavLink key={n.to} to={n.to} end={n.to === '/'} className={({ isActive }) => (isActive ? 'active' : '')}>
-              {n.label}
-            </NavLink>
-          ))}
-        </nav>
-        <main className="page-body">
-          <Routes>
-            <Route path="/" element={<SoloPage />} />
-            <Route path="/filedub" element={<FileDubPage />} />
-            <Route path="/interpreter" element={<InterpreterPage />} />
-            <Route path="/meeting" element={<MeetingPage />} />
-            <Route path="/history" element={<HistoryPage />} />
-            <Route path="/settings" element={<SettingsPage />} />
-          </Routes>
-        </main>
-      </div>
+      <Routes>
+        <Route path="/onboarding" element={<OnboardingPage />} />
+        <Route path="*" element={
+          hasKey ? (
+            <AppShell>
+              <Routes>
+                <Route path="/live" element={<LivePage />} />
+                <Route path="/dub" element={<FileDubPage />} />
+                <Route path="/meeting" element={<MeetingPage />} />
+                <Route path="/history" element={<HistoryPage />} />
+                <Route path="/settings" element={<SettingsPage />} />
+                <Route path="*" element={<Navigate to="/live" replace />} />
+              </Routes>
+            </AppShell>
+          ) : (
+            <Navigate to="/onboarding" replace />
+          )
+        } />
+      </Routes>
     </HashRouter>
   );
 }

@@ -21,7 +21,7 @@ export function DevicePicker({ kind, value, onChange }: {
   }, [kind]);
   return (
     <select
-      className="device-picker"
+      className="select"
       value={value}
       onChange={(e) => {
         const dev = devices.find((d) => d.deviceId === e.target.value);

@@ -27,6 +27,8 @@ async function boot(): Promise<void> {
   const win = new BrowserWindow({
     width: 1280,
     height: 840,
+    minWidth: 960,
+    minHeight: 640,
     webPreferences: { preload: join(__dirname, 'preload.cjs'), contextIsolation: true },
   });
   if (process.env.LT_UI_DEV_URL) {

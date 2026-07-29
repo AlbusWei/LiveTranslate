@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Mic, AudioLines, Users, Search, ChevronDown, Play, Trash2, FileText } from 'lucide-react';
 import {
   deleteSessionRecord, fetchSegmentAudio, fetchSegments, fetchSessionLog, fetchSessions,
   type SegmentDto, type SessionDto,
@@ -7,25 +8,46 @@ import { createPlayerSink } from '../audio/playerSink';
 
 const MODES = [
   { value: '', label: '全部' },
-  { value: 'solo', label: '单人测试' },
-  { value: 'filedub', label: '翻译机·配音' },
-  { value: 'interpreter', label: '实时翻译机' },
+  { value: 'solo', label: '实时' },
+  { value: 'interpreter', label: '实时' },
+  { value: 'filedub', label: '配音' },
   { value: 'meeting', label: '会议' },
 ] as const;
 
-const stamp = (ms: number): string => new Date(ms).toLocaleString();
+const FILTER_CHIPS = [
+  { value: '', label: '全部' },
+  { value: 'live', label: '实时' },
+  { value: 'filedub', label: '配音' },
+  { value: 'meeting', label: '会议' },
+] as const;
+
+const MODE_ICON: Record<string, { icon: typeof Mic; bg: string; color: string }> = {
+  solo: { icon: Mic, bg: 'var(--color-primary-soft)', color: 'var(--color-primary)' },
+  interpreter: { icon: Mic, bg: 'var(--color-primary-soft)', color: 'var(--color-primary)' },
+  filedub: { icon: AudioLines, bg: 'var(--color-success-soft)', color: 'var(--color-success)' },
+  meeting: { icon: Users, bg: '#F0E8FE', color: '#7C5BD4' },
+};
+
+function dateGroup(ms: number): string {
+  const d = new Date(ms);
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const target = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const diff = today.getTime() - target.getTime();
+  if (diff === 0) return '今天';
+  if (diff === 86400000) return '昨天';
+  return `${d.getMonth() + 1}月${d.getDate()}日`;
+}
 
 function download(name: string, mime: string, content: string): void {
   const url = URL.createObjectURL(new Blob([content], { type: mime }));
   const a = document.createElement('a');
-  a.href = url;
-  a.download = name;
-  a.click();
+  a.href = url; a.download = name; a.click();
   URL.revokeObjectURL(url);
 }
 
 export function HistoryPage(): JSX.Element {
-  const [mode, setMode] = useState<'' | SessionDto['mode']>('');
+  const [filter, setFilter] = useState('');
   const [search, setSearch] = useState('');
   const [sessions, setSessions] = useState<SessionDto[]>([]);
   const [openId, setOpenId] = useState<string | null>(null);
@@ -33,22 +55,30 @@ export function HistoryPage(): JSX.Element {
   const [logText, setLogText] = useState<string | null>(null);
   const sink = useMemo(() => createPlayerSink(), []);
 
+  const modeFilter = filter === 'live' ? undefined : filter || undefined;
+
   const reload = (): void => {
-    void fetchSessions(mode || undefined).then(setSessions);
+    void fetchSessions(modeFilter as SessionDto['mode'] | undefined).then(setSessions);
   };
 
-  useEffect(reload, [mode]);
+  useEffect(reload, [filter]);
 
   useEffect(() => {
     setLogText(null);
-    if (!openId) {
-      setSegments([]);
-      return;
-    }
+    if (!openId) { setSegments([]); return; }
     void fetchSegments(openId).then(setSegments);
   }, [openId]);
 
-  const visible = sessions.filter((s) => !search || s.id.includes(search) || stamp(s.started_at).includes(search));
+  const visible = sessions.filter((s) => !search || s.id.includes(search) || new Date(s.started_at).toLocaleString().includes(search));
+
+  // Group by date
+  const groups: { label: string; items: SessionDto[] }[] = [];
+  for (const s of visible) {
+    const label = dateGroup(s.started_at);
+    const g = groups.find((x) => x.label === label);
+    if (g) g.items.push(s);
+    else groups.push({ label, items: [s] });
+  }
 
   const exportTxt = (): void => {
     if (!openId) return;
@@ -62,58 +92,86 @@ export function HistoryPage(): JSX.Element {
   };
 
   const removeSession = (id: string): void => {
-    if (!window.confirm(`删除会话 ${id}？段落与音频将一并删除（事件日志保留）。`)) return;
-    void deleteSessionRecord(id).then(() => {
-      if (openId === id) setOpenId(null);
-      reload();
-    });
+    if (!window.confirm(`删除会话 ${id}？段落与音频将一并删除。`)) return;
+    void deleteSessionRecord(id).then(() => { if (openId === id) setOpenId(null); reload(); });
   };
 
   return (
-    <div className="history-page">{/* App 外壳已提供 .page-body，不重复套 */}
-      <section className="controls">
-        {MODES.map((m) => (
-          <button key={m.value} className={mode === m.value ? 'active' : ''} onClick={() => setMode(m.value)}>{m.label}</button>
+    <div className="page-content">
+      <div className="page-header">
+        <h1 className="page-title">历史</h1>
+        <p className="page-subtitle">你的每一次翻译都被妥善保管</p>
+      </div>
+
+      <div className="history-filter">
+        {FILTER_CHIPS.map((c) => (
+          <button key={c.value} className={`chip${filter === c.value ? ' active' : ''}`} onClick={() => setFilter(c.value)}>{c.label}</button>
         ))}
-        <input placeholder="搜索 session id / 日期" value={search} onChange={(e) => setSearch(e.target.value)} />
-      </section>
-      <section className="history-list">
-        {visible.map((s) => (
-          <div key={s.id} className={`history-row ${openId === s.id ? 'open' : ''}`}>
-            <button onClick={() => setOpenId(openId === s.id ? null : s.id)}>
-              {stamp(s.started_at)} · {MODES.find((m) => m.value === s.mode)?.label} · {s.id}
-            </button>
-            <button onClick={() => removeSession(s.id)}>删除</button>
-          </div>
-        ))}
-        {visible.length === 0 && <p>暂无历史会话</p>}
-      </section>
-      {openId && (
-        <section className="history-detail">
-          <div className="controls">
-            <button onClick={exportTxt}>导出双语 TXT</button>
-            <button onClick={showLog}>查看事件日志</button>
-            {logText !== null && (
-              <button onClick={() => download(`${openId}.jsonl`, 'text/plain;charset=utf-8', logText)}>导出日志</button>
-            )}
-          </div>
-          {segments.map((g) => (
-            <div key={g.id} className="segment-card status-done">
-              <div className="segment-source">
-                <span>{g.source_text}</span>
-                {g.source_lang && <span className="lang-tag">［{g.source_lang}{g.emotion ? ` · ${g.emotion}` : ''}］</span>}
-              </div>
-              <div className="segment-target"><span>{g.target_text}</span></div>
-              <div className="segment-meta">
-                {g.audio_path && (
-                  <button onClick={() => void fetchSegmentAudio(g.session_id, g.seq).then((b) => sink.play(b))}>▶ 重播</button>
-                )}
-              </div>
-            </div>
-          ))}
-          {logText !== null && <pre className="log-view">{logText}</pre>}
-        </section>
+        <div className="history-search">
+          <Search size={14} />
+          <input className="input" placeholder="搜索翻译记录…" value={search} onChange={(e) => setSearch(e.target.value)} />
+        </div>
+      </div>
+
+      {groups.length === 0 && (
+        <div className="empty-state">
+          <div className="empty-icon"><FileText size={24} /></div>
+          <div className="empty-title">还没有翻译记录</div>
+          <div className="empty-desc">开始第一次翻译后，记录将出现在这里</div>
+        </div>
       )}
+
+      {groups.map((group) => (
+        <div key={group.label}>
+          <div className="date-group-title">{group.label}</div>
+          {group.items.map((s) => {
+            const modeInfo = MODE_ICON[s.mode] ?? MODE_ICON['solo']!;
+            const ModeIcon = modeInfo.icon;
+            const isOpen = openId === s.id;
+            const time = new Date(s.started_at);
+            const timeStr = `${String(time.getHours()).padStart(2, '0')}:${String(time.getMinutes()).padStart(2, '0')}`;
+            return (
+              <div key={s.id} className={`card session-card${isOpen ? ' expanded' : ''}`}>
+                <button className="session-card-header" onClick={() => setOpenId(isOpen ? null : s.id)}>
+                  <div className="session-mode-icon" style={{ background: modeInfo.bg, color: modeInfo.color }}>
+                    <ModeIcon size={18} />
+                  </div>
+                  <div className="session-info">
+                    <div className="session-title">{s.id.slice(0, 12)}… · {s.mode}</div>
+                    <div className="session-meta">{timeStr}</div>
+                  </div>
+                  <div className="session-badges">
+                    <span className="session-expand-icon"><ChevronDown size={16} /></span>
+                  </div>
+                </button>
+                <div className="session-detail">
+                  {segments.map((g) => (
+                    <div key={g.id} className="session-detail-seg">
+                      <div className="session-detail-target">{g.target_text}</div>
+                      <div className="session-detail-source">
+                        {g.source_text}
+                        {g.source_lang && <span className="emotion-badge" style={{ marginLeft: '6px' }}>{g.source_lang}</span>}
+                      </div>
+                      {g.audio_path && (
+                        <button className="segment-replay" style={{ marginTop: '4px' }} onClick={() => void fetchSegmentAudio(g.session_id, g.seq).then((b) => sink.play(b))}>
+                          <Play size={12} />重播
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                  <div className="session-detail-actions">
+                    <button className="btn btn-secondary btn-sm" onClick={exportTxt}>导出双语 TXT</button>
+                    <button className="btn btn-ghost btn-sm" onClick={showLog}>查看事件日志</button>
+                    {logText !== null && <button className="btn btn-secondary btn-sm" onClick={() => download(`${s.id}.jsonl`, 'text/plain;charset=utf-8', logText)}>导出日志</button>}
+                    <button className="btn btn-danger-ghost btn-sm" onClick={() => removeSession(s.id)}><Trash2 size={13} />删除</button>
+                  </div>
+                  {logText !== null && <pre style={{ maxHeight: '240px', overflow: 'auto', background: 'var(--color-bg)', padding: '12px', borderRadius: 'var(--radius-md)', fontSize: '11px', marginTop: 'var(--space-3)' }}>{logText}</pre>}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ))}
     </div>
   );
 }

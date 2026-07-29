@@ -1,8 +1,8 @@
 export function VolumeMeter({ level }: { level: number }): JSX.Element {
-  const pct = Math.min(100, Math.round(level * 300)); // RMS 0.33 即满格，正常说话可见摆动
+  const pct = Math.min(100, Math.round(level * 300));
   return (
-    <div className="volume-meter">
-      <div className="volume-fill" style={{ width: `${pct}%` }} />
+    <div style={{ height: '6px', background: 'var(--color-border)', borderRadius: '3px', overflow: 'hidden', marginTop: 'var(--space-2)' }}>
+      <div style={{ height: '100%', width: `${pct}%`, background: pct > 5 ? 'var(--color-success)' : 'var(--color-border)', borderRadius: '3px', transition: 'width 80ms linear' }} />
     </div>
   );
 }

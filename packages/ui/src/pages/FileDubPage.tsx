@@ -3,13 +3,13 @@ import {
   LANGUAGES, OUTPUT_SAMPLE_RATE, bytesToBase64, supportsAudioOutput, wavDurationSeconds,
   type DubPlacement, type DubSegmentTiming,
 } from '@livetranslate/core';
+import { Upload, Film, Play, Pause, SkipBack, Download, ChevronDown } from 'lucide-react';
 import {
   createGatewayApi, createMediaJob, exportUrl, fetchMediaJob, fetchSegmentAudio, fetchSegments, mediaFileUrl,
   type MediaJobStatusDto, type SegmentDto,
 } from '../api';
 import { createPlayerSink } from '../audio/playerSink';
 import { DriftBar } from '../components/DriftBar';
-import { SegmentWave } from '../components/SegmentWave';
 import { DubPlaybackController } from '../state/dubPlayback';
 
 type Phase = 'pick' | 'uploading' | 'processing' | 'done' | 'failed';
@@ -20,7 +20,6 @@ const fmtMs = (ms: number | null): string => {
   return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
 };
 
-// WAV（PCM16LE mono）→ 归一化采样：右栏译文段波形用
 const wavToFloat32 = (wav: Uint8Array): Float32Array => {
   const pcm = wav.subarray(44);
   const dv = new DataView(pcm.buffer, pcm.byteOffset, pcm.byteLength);
@@ -35,17 +34,15 @@ export function FileDubPage(): JSX.Element {
   const [isVideo, setIsVideo] = useState(false);
   const [targetLanguage, setTargetLanguage] = useState('en');
   const [voice, setVoice] = useState('Tina');
-  const [voiceClone, setVoiceClone] = useState(true); // spec 5.2：once 复刻默认开
-  const [framesEnabled, setFramesEnabled] = useState(true); // spec 5.2：抽帧增强默认开（仅视频）
+  const [voiceClone, setVoiceClone] = useState(true);
+  const [framesEnabled, setFramesEnabled] = useState(true);
   const [jobId, setJobId] = useState<string | null>(null);
   const [status, setStatus] = useState<MediaJobStatusDto | null>(null);
   const [segments, setSegments] = useState<SegmentDto[]>([]);
   const [error, setError] = useState<string | null>(null);
   const sink = useRef(createPlayerSink());
-  // 原声播放：原始媒体走原时间轴，双栏按 VAD 起止同步高亮（spec 5.2 工作台）
   const mediaRef = useRef<HTMLAudioElement | HTMLVideoElement | null>(null);
   const [srcSeq, setSrcSeq] = useState<number | null>(null);
-  // 配音回放（T24）：顺延时间轴调度 + 漂移可视化
   const [placements, setPlacements] = useState<DubPlacement[]>([]);
   const [dubPlaying, setDubPlaying] = useState(false);
   const [currentSeq, setCurrentSeq] = useState<number | null>(null);
@@ -53,6 +50,7 @@ export function FileDubPage(): JSX.Element {
   const [srcAudio, setSrcAudio] = useState<{ samples: Float32Array; sampleRate: number } | null>(null);
   const audioCache = useRef(new Map<number, Uint8Array>());
   const controller = useRef<DubPlaybackController | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   async function initDubPlayback(segs: SegmentDto[], sessionId: string): Promise<void> {
     const timings: DubSegmentTiming[] = [];
@@ -62,23 +60,12 @@ export function FileDubPage(): JSX.Element {
       const wav = await fetchSegmentAudio(sessionId, s.seq);
       audioCache.current.set(s.seq, wav);
       waves.set(s.seq, wavToFloat32(wav));
-      timings.push({
-        seq: s.seq,
-        srcStartMs: s.vad_start_ms,
-        srcEndMs: s.vad_end_ms,
-        dubDurationMs: Math.round(wavDurationSeconds(wav.length - 44, OUTPUT_SAMPLE_RATE) * 1000), // 去掉 44 字节 WAV 头
-      });
+      timings.push({ seq: s.seq, srcStartMs: s.vad_start_ms, srcEndMs: s.vad_end_ms, dubDurationMs: Math.round(wavDurationSeconds(wav.length - 44, OUTPUT_SAMPLE_RATE) * 1000) });
     }
     const c = new DubPlaybackController({
       now: () => performance.now(),
-      schedule: (cb, delayMs) => {
-        const handle = window.setTimeout(cb, delayMs);
-        return () => window.clearTimeout(handle);
-      },
-      playSegment: (seq) => {
-        const wav = audioCache.current.get(seq);
-        if (wav) void sink.current.play(wav);
-      },
+      schedule: (cb, delayMs) => { const h = window.setTimeout(cb, delayMs); return () => window.clearTimeout(h); },
+      playSegment: (seq) => { const wav = audioCache.current.get(seq); if (wav) void sink.current.play(wav); },
     });
     setPlacements(c.load(timings));
     setDubWaves(waves);
@@ -91,7 +78,6 @@ export function FileDubPage(): JSX.Element {
     return () => clearInterval(handle);
   }, [dubPlaying]);
 
-  // 左栏原声波形：解码失败仅降级不显示，不阻断工作台
   useEffect(() => {
     if (phase !== 'done' || !jobId) return;
     let cancelled = false;
@@ -102,7 +88,7 @@ export function FileDubPage(): JSX.Element {
         const decoded = await ac.decodeAudioData(buf);
         void ac.close();
         if (!cancelled) setSrcAudio({ samples: decoded.getChannelData(0), sampleRate: decoded.sampleRate });
-      } catch { /* 波形是增强展示 */ }
+      } catch { /* waveform is enhancement */ }
     })();
     return () => { cancelled = true; };
   }, [phase, jobId]);
@@ -115,7 +101,6 @@ export function FileDubPage(): JSX.Element {
     });
   }, []);
 
-  // 轮询作业状态（T21 进度存内存，1s 一次足够）
   useEffect(() => {
     if (!jobId || phase !== 'processing') return;
     const timer = setInterval(() => {
@@ -144,15 +129,7 @@ export function FileDubPage(): JSX.Element {
     setError(null);
     try {
       const bytes = new Uint8Array(await file.arrayBuffer());
-      const id = await createMediaJob({
-        fileName: file.name,
-        dataBase64: bytesToBase64(bytes),
-        isVideo,
-        targetLanguage,
-        voiceClone,
-        voice,
-        framesEnabled: isVideo && framesEnabled,
-      });
+      const id = await createMediaJob({ fileName: file.name, dataBase64: bytesToBase64(bytes), isVideo, targetLanguage, voiceClone, voice, framesEnabled: isVideo && framesEnabled });
       setJobId(id);
       setPhase('processing');
     } catch (err) {
@@ -167,7 +144,6 @@ export function FileDubPage(): JSX.Element {
     await sink.current.play(wav);
   }
 
-  // 原始媒体 timeupdate → 命中 VAD 区间的段（原声播放高亮）
   function onSourceTimeUpdate(): void {
     const el = mediaRef.current;
     if (!el || el.paused) return;
@@ -176,16 +152,11 @@ export function FileDubPage(): JSX.Element {
     setSrcSeq(hit ? hit.seq : null);
   }
 
-  // 配音回放：只出右侧译文声；视频时左栏画面按原时间轴静音同步
   function startDubPlayback(): void {
     const c = controller.current;
     if (!c) return;
     mediaRef.current?.pause();
-    if (isVideo && mediaRef.current) {
-      mediaRef.current.muted = true;
-      mediaRef.current.currentTime = c.positionMs() / 1000;
-      void mediaRef.current.play();
-    }
+    if (isVideo && mediaRef.current) { mediaRef.current.muted = true; mediaRef.current.currentTime = c.positionMs() / 1000; void mediaRef.current.play(); }
     c.play();
     setDubPlaying(true);
   }
@@ -193,10 +164,7 @@ export function FileDubPage(): JSX.Element {
   function pauseDubPlayback(): void {
     controller.current?.pause();
     sink.current.stop();
-    if (isVideo && mediaRef.current) {
-      mediaRef.current.pause();
-      mediaRef.current.muted = false;
-    }
+    if (isVideo && mediaRef.current) { mediaRef.current.pause(); mediaRef.current.muted = false; }
     setDubPlaying(false);
   }
 
@@ -204,131 +172,182 @@ export function FileDubPage(): JSX.Element {
   const pct = progress && progress.totalMs > 0 ? Math.round((progress.doneMs / progress.totalMs) * 100) : 0;
 
   return (
-    <div className="filedub-page">
-      <h2>翻译机·配音</h2>
+    <div className="page-content" style={{ maxWidth: '1000px', display: 'flex', flexDirection: 'column' }}>
+      <div className="page-header">
+        <h1 className="page-title">文件配音</h1>
+        <p className="page-subtitle">导入音视频文件，全速预处理后获得双语配音</p>
+      </div>
+
+      {/* Pick phase: DropZone */}
       {phase === 'pick' && (
-        <div className="config-panel">
-          <label>
-            音视频文件
-            <input
-              type="file"
-              accept="audio/*,video/*"
-              onChange={(e) => {
-                const f = e.target.files?.[0] ?? null;
-                setFile(f);
-                setIsVideo(f?.type.startsWith('video/') ?? false);
-              }}
-            />
-          </label>
-          <label>
-            目标语言
-            <select value={targetLanguage} onChange={(e) => setTargetLanguage(e.target.value)}>
-              {LANGUAGES.filter((l) => l.audio).map((l) => (
-                <option key={l.code} value={l.code}>{l.name}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            <input type="checkbox" checked={voiceClone} onChange={(e) => setVoiceClone(e.target.checked)} />
-            音色复刻（once，取文件开头人声）
-          </label>
-          {!voiceClone && (
-            <label>
-              预置音色
-              <input value={voice} onChange={(e) => setVoice(e.target.value)} />
-            </label>
-          )}
-          {isVideo && (
-            <label>
-              <input type="checkbox" checked={framesEnabled} onChange={(e) => setFramesEnabled(e.target.checked)} />
-              抽帧视觉增强（提升专名/术语翻译，额外消耗 token）
-            </label>
-          )}
-          <button disabled={!file || !supportsAudioOutput(targetLanguage)} onClick={() => void start()}>开始预处理</button>
-          {file && !supportsAudioOutput(targetLanguage) && <p className="error-text">该目标语言不支持语音输出，请换音频支持语种</p>}
-        </div>
-      )}
-      {(phase === 'uploading' || phase === 'processing') && (
-        <div className="dub-progress">
-          <p>{phase === 'uploading' ? '上传中…' : `全速预处理中（P8，不限速）：${fmtMs(progress?.doneMs ?? 0)} / ${fmtMs(progress?.totalMs ?? null)}`}</p>
-          <progress max={100} value={pct} />
-        </div>
-      )}
-      {phase === 'failed' && (
-        <div className="dub-progress">
-          <p className="error-text">{error}</p>
-          <button onClick={() => { setPhase('pick'); setJobId(null); setStatus(null); }}>重新选择</button>
-        </div>
-      )}
-      {phase === 'done' && jobId && (
-        <div className="dub-workbench">
-          {(() => {
-            const a = status?.job.artifacts_json
-              ? (JSON.parse(status.job.artifacts_json) as { droppedFrames?: number; framesDegraded?: boolean })
-              : null;
-            if (!a) return null;
-            return (
-              <>
-                {a.framesDegraded && <p className="warn-text">抽帧失败，已降级为“仅音轨”翻译（译文不含视觉增强）</p>}
-                {(a.droppedFrames ?? 0) > 0 && <p className="warn-text">有 {a.droppedFrames} 帧超过 190KB 限制被跳过（P11）</p>}
-              </>
-            );
-          })()}
-          <div className="dub-source-media">
-            <h3>原始媒体</h3>
-            {isVideo
-              ? <video controls src={mediaFileUrl(jobId)} className="dub-video" ref={(el) => { mediaRef.current = el; }} onTimeUpdate={onSourceTimeUpdate} onPause={() => setSrcSeq(null)} onEnded={() => setSrcSeq(null)} />
-              : <audio controls src={mediaFileUrl(jobId)} ref={(el) => { mediaRef.current = el; }} onTimeUpdate={onSourceTimeUpdate} onPause={() => setSrcSeq(null)} onEnded={() => setSrcSeq(null)} />}
-            <button className="secondary" onClick={() => { void mediaRef.current?.play(); }}>▶ 原声播放</button>
+        <>
+          <div className="dropzone" onClick={() => fileInputRef.current?.click()}
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) { setFile(f); setIsVideo(f.type.startsWith('video/')); } }}>
+            <div className="dropzone-icon"><Upload size={24} /></div>
+            <div className="dropzone-title">拖入音频或视频文件</div>
+            <div className="dropzone-desc">支持 MP3、WAV、M4A、MP4、WebM 等格式</div>
           </div>
-          <div className="dub-playback">
-            <button disabled={dubPlaying} onClick={startDubPlayback}>▶ 配音回放</button>
-            <button disabled={!dubPlaying} onClick={pauseDubPlayback}>⏸ 暂停</button>
-            <button onClick={() => { pauseDubPlayback(); controller.current?.seek(0); setCurrentSeq(null); }}>⏮ 回到开头</button>
-            <DriftBar placements={placements} currentSeq={currentSeq} totalMs={progress?.totalMs ?? 0} />
-          </div>
-          {status?.job.session_id && (
-            <div className="dub-exports">
-              <a href={exportUrl('srt', status.job.session_id)} download>导出 SRT</a>
-              <a href={exportUrl('txt', status.job.session_id)} download>导出双语 TXT</a>
-              <a href={exportUrl('dub-wav', status.job.session_id)} download>导出混音 WAV</a>
-            </div>
-          )}
-          <div className="dub-columns">
-            <div className="dub-col">
-              <h3>原文</h3>
-              {segments.map((s) => (
-                <div key={s.seq} className={`dub-cell${srcSeq === s.seq || currentSeq === s.seq ? ' playing' : ''}`}>
-                  <span className="segment-meta">{fmtMs(s.vad_start_ms)}–{fmtMs(s.vad_end_ms)}{s.source_lang ? ` · ${s.source_lang}` : ''}</span>
-                  <p className="segment-source">{s.source_text}</p>
-                  {srcAudio && s.vad_start_ms !== null && s.vad_end_ms !== null && (
-                    <SegmentWave samples={srcAudio.samples.subarray(
-                      Math.floor((s.vad_start_ms / 1000) * srcAudio.sampleRate),
-                      Math.floor((s.vad_end_ms / 1000) * srcAudio.sampleRate),
-                    )} color="#6a9" />
-                  )}
+          <input ref={fileInputRef} type="file" accept="audio/*,video/*" style={{ display: 'none' }}
+            onChange={(e) => { const f = e.target.files?.[0] ?? null; setFile(f); setIsVideo(f?.type.startsWith('video/') ?? false); }} />
+
+          {file && (
+            <div className="card" style={{ marginTop: 'var(--space-5)', padding: 'var(--space-5)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', marginBottom: 'var(--space-4)' }}>
+                <div className="dub-file-icon"><Film size={16} /></div>
+                <div>
+                  <div className="dub-file-name">{file.name}</div>
+                  <div className="dub-file-meta">{(file.size / 1024 / 1024).toFixed(1)} MB · {isVideo ? '视频' : '音频'}</div>
                 </div>
-              ))}
+              </div>
+              <div className="config-grid" style={{ marginBottom: 'var(--space-4)' }}>
+                <div>
+                  <label className="label">目标语言</label>
+                  <select className="select" value={targetLanguage} onChange={(e) => setTargetLanguage(e.target.value)}>
+                    {LANGUAGES.filter((l) => l.audio).map((l) => <option key={l.code} value={l.code}>{l.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="label">预置音色</label>
+                  <select className="select" value={voice} onChange={(e) => setVoice(e.target.value)} disabled={voiceClone}>
+                    <option value="Tina">Tina</option><option value="Cherry">Cherry</option><option value="Ethan">Ethan</option>
+                  </select>
+                </div>
+              </div>
+              <div className="config-row">
+                <span className="config-row-label">音色复刻（取文件开头人声）</span>
+                <button className={`switch${voiceClone ? ' on' : ''}`} role="switch" aria-checked={voiceClone} aria-label="音色复刻" onClick={() => setVoiceClone(!voiceClone)} />
+              </div>
+              {isVideo && (
+                <div className="config-row">
+                  <span className="config-row-label">抽帧视觉增强（额外消耗 token）</span>
+                  <button className={`switch${framesEnabled ? ' on' : ''}`} role="switch" aria-checked={framesEnabled} aria-label="抽帧视觉增强" onClick={() => setFramesEnabled(!framesEnabled)} />
+                </div>
+              )}
+              {!supportsAudioOutput(targetLanguage) && <div className="inline-alert error" style={{ marginTop: 'var(--space-3)' }}>该目标语言不支持语音输出，请换音频支持语种</div>}
+              <button className="btn btn-primary" style={{ marginTop: 'var(--space-4)' }} disabled={!supportsAudioOutput(targetLanguage)} onClick={() => void start()}>开始预处理</button>
             </div>
-            <div className="dub-col">
-              <h3>译文</h3>
+          )}
+        </>
+      )}
+
+      {/* Processing phase */}
+      {(phase === 'uploading' || phase === 'processing') && (
+        <div className="card" style={{ padding: 'var(--space-8)', textAlign: 'center', marginTop: 'var(--space-8)' }}>
+          <div className="dub-file-name" style={{ marginBottom: 'var(--space-4)' }}>{file?.name}</div>
+          <div className="progress-bar" style={{ maxWidth: '400px', margin: '0 auto var(--space-3)' }}>
+            <div className="progress-fill" style={{ width: `${pct}%` }} />
+          </div>
+          <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)' }}>
+            {phase === 'uploading' ? '上传中…' : `正在翻译… ${fmtMs(progress?.doneMs ?? 0)} / ${fmtMs(progress?.totalMs ?? null)} (${pct}%)`}
+          </p>
+        </div>
+      )}
+
+      {/* Failed phase */}
+      {phase === 'failed' && (
+        <div className="card" style={{ padding: 'var(--space-8)', textAlign: 'center', marginTop: 'var(--space-8)' }}>
+          <div className="inline-alert error">{error}</div>
+          <button className="btn btn-secondary" onClick={() => { setPhase('pick'); setJobId(null); setStatus(null); }}>重新选择</button>
+        </div>
+      )}
+
+      {/* Done phase: Workbench */}
+      {phase === 'done' && jobId && (
+        <div className="card" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+          <div className="dub-toolbar">
+            <div className="dub-file-info">
+              <div className="dub-file-icon"><Film size={16} /></div>
+              <div>
+                <div className="dub-file-name">{file?.name ?? '文件'}</div>
+                <div className="dub-file-meta">{fmtMs(progress?.totalMs ?? null)} · 预处理完成</div>
+              </div>
+            </div>
+            <div className="dub-toolbar-actions">
+              {status?.job.session_id && (
+                <>
+                  <a className="btn btn-secondary btn-sm" href={exportUrl('srt', status.job.session_id)} download><Download size={13} />SRT</a>
+                  <a className="btn btn-secondary btn-sm" href={exportUrl('txt', status.job.session_id)} download>TXT</a>
+                  <a className="btn btn-secondary btn-sm" href={exportUrl('dub-wav', status.job.session_id)} download>WAV</a>
+                </>
+              )}
+            </div>
+          </div>
+
+          <div className="dub-workbench">
+            <div className="dub-panel dub-panel-left">
+              <div className="dub-video-area">
+                {isVideo ? (
+                  <video src={mediaFileUrl(jobId)} style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                    ref={(el) => { mediaRef.current = el; }} onTimeUpdate={onSourceTimeUpdate} onPause={() => setSrcSeq(null)} onEnded={() => setSrcSeq(null)} />
+                ) : (
+                  <div className="dub-video-placeholder">
+                    <Film size={32} />
+                    <span>纯音频文件</span>
+                    <audio src={mediaFileUrl(jobId)} style={{ display: 'none' }}
+                      ref={(el) => { mediaRef.current = el; }} onTimeUpdate={onSourceTimeUpdate} onPause={() => setSrcSeq(null)} onEnded={() => setSrcSeq(null)} />
+                  </div>
+                )}
+              </div>
+              <div className="dub-timeline">
+                <div className="dub-timeline-wave">
+                  {srcAudio && Array.from({ length: 80 }, (_, i) => {
+                    const idx = Math.floor((i / 80) * srcAudio.samples.length);
+                    const v = Math.abs(srcAudio.samples[idx] ?? 0);
+                    return <i key={i} style={{ height: `${Math.max(3, v * 30)}px` }} />;
+                  })}
+                </div>
+              </div>
+              <div style={{ marginTop: 'var(--space-4)' }}>
+                {segments.map((s) => (
+                  <div key={s.seq} className={`dub-seg-card${srcSeq === s.seq ? ' playing' : ''}`}>
+                    <div className="dub-seg-time">{fmtMs(s.vad_start_ms)} – {fmtMs(s.vad_end_ms)}</div>
+                    <div className="dub-seg-text" style={{ color: 'var(--color-text-secondary)', fontSize: '14px' }}>{s.source_text}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="dub-panel">
               {segments.map((s) => {
                 const p = placements.find((x) => x.seq === s.seq);
                 return (
-                  <div key={s.seq} className={`dub-cell${srcSeq === s.seq || currentSeq === s.seq ? ' playing' : ''}`}>
-                    <span className="segment-meta">
-                      #{s.seq}
-                      {p && ` · 时长 ${((p.dubEndMs - p.dubStartMs) / 1000).toFixed(1)}s`}
-                      {p && p.driftMs > 0 && <span className="warn-text"> · 漂移 +{(p.driftMs / 1000).toFixed(1)}s</span>}
-                    </span>
-                    <p className="segment-target">{s.target_text}</p>
-                    {dubWaves.get(s.seq) && <SegmentWave samples={dubWaves.get(s.seq)!} />}
-                    {s.audio_path && <button onClick={() => void playSegment(s)}>▶ 播放译文</button>}
+                  <div key={s.seq} className={`dub-seg-card${currentSeq === s.seq ? ' playing' : ''}`}>
+                    <div className="dub-seg-time">
+                      {fmtMs(s.vad_start_ms)} – {fmtMs(s.vad_end_ms)}
+                      {p && p.driftMs > 0 && <span style={{ color: 'var(--color-warning)', marginLeft: '6px' }}>+{(p.driftMs / 1000).toFixed(1)}s</span>}
+                    </div>
+                    <div className="dub-seg-text">{s.target_text}</div>
+                    <div className="dub-seg-wave">
+                      {dubWaves.get(s.seq) && Array.from({ length: 40 }, (_, i) => {
+                        const samples = dubWaves.get(s.seq)!;
+                        const idx = Math.floor((i / 40) * samples.length);
+                        return <i key={i} style={{ height: `${Math.max(3, Math.abs(samples[idx] ?? 0) * 24)}px` }} />;
+                      })}
+                    </div>
+                    {s.audio_path && (
+                      <button className="segment-replay" style={{ marginTop: 'var(--space-2)' }} onClick={() => void playSegment(s)}>
+                        <Play size={12} />播放
+                      </button>
+                    )}
                   </div>
                 );
               })}
             </div>
           </div>
+
+          <div className="dub-transport">
+            <button className="transport-play" onClick={() => dubPlaying ? pauseDubPlayback() : startDubPlayback()}>
+              {dubPlaying ? <Pause size={18} /> : <Play size={18} />}
+            </button>
+            <button className="dock-icon-btn" title="回到开头" onClick={() => { pauseDubPlayback(); controller.current?.seek(0); setCurrentSeq(null); }}>
+              <SkipBack size={16} />
+            </button>
+            <div className="transport-progress">
+              <div className="transport-fill" style={{ width: `${currentSeq ? ((placements.find((p) => p.seq === currentSeq)?.dubEndMs ?? 0) / (progress?.totalMs ?? 1)) * 100 : 0}%` }} />
+            </div>
+            <span className="transport-time">{fmtMs(progress?.totalMs ?? null)}</span>
+          </div>
+          <DriftBar placements={placements} currentSeq={currentSeq} totalMs={progress?.totalMs ?? 0} />
         </div>
       )}
     </div>
